@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: clipai-downloader
+    env: node
+    buildCommand: pip install yt-dlp && npm install
+    startCommand: node server.js
