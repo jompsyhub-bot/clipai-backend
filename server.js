@@ -140,8 +140,7 @@ app.get('/api/download', (req, res) => {
     const h = heights[quality] || 720;
     outputPath = path.join(DOWNLOAD_DIR, filename + '.mp4');
     dlFilename = 'video.mp4'; contentType = 'video/mp4';
-    cmd = `"${YTDLP}" --ffmpeg-location "${FFMPEG}" -f "bestvideo[height<=${h}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${h}][ext=mp4]/best[height<=${h}]" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
-  }
+    const cmd = `"${YTDLP}" --ffmpeg-location "${FFMPEG}" -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" --add-header "Accept-Language:en-US,en;q=0.9" --extractor-args "youtube:player_client=android,web,ios" -o "${outputPath}" "${url}"`;
   exec(cmd, { maxBuffer: 1024 * 1024 * 100, timeout: 600000 }, (err, stdout, stderr) => {
     if (err) return res.status(500).json({ message: 'Conversion failed', error: stderr });
     if (!fs.existsSync(outputPath)) return res.status(500).json({ message: 'File not created' });
