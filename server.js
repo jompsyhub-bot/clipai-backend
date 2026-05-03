@@ -168,7 +168,48 @@ app.post('/api/youtube-upload', async (req, res) => {
   const localFileId = `yt_${Date.now()}`;
   const outputPath = path.join(UPLOAD_DIR, localFileId + '.mp4');
 
-  const cmd = `"${YTDLP}" --ffmpeg-location "${FFMPEG}" -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+  app.post('/api/youtube-upload', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'No URL provided' });
+  console.log('📥 /api/youtube-upload:', url);
+
+  // Wait for yt-dlp to be ready
+  let waited = 0;
+  while (!fs.existsSync(YTDLP) && waited < 60000) {
+    await new Promise(r => setTimeout(r, 2000));
+    waited += 2000;
+  }
+  if (!fs.existsSync(YTDLP)) return res.status(503).json({ error: 'yt-dlp not ready, please try again.' });
+
+  const localFileId = `yt_${Date.now()}`;
+  const outputPath = path.join(UPLOAD_DIR, localFileId + '.mp4');
+  const cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+  console.log('Running:', cmd);
+
+  exec(cmd, { maxBuffer: 1024 * 1024 * 200, timeout: 600000 }, async (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ error: 'YouTube download failed: ' + stderr.substring(0, 200) });
+    if (!fs.existsSync(outputPath)) return res.status(500).json({ error: 'Downloaded file not found' });
+    console.log('✅ YouTube downloaded, size:', fs.statSync(outputPath).size);
+
+    const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
+    if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+
+    try {
+      const fileData = fs.readFileSync(outputPath);
+      const uploadRes = await fetchWithBuffer('https://api.assemblyai.com/v2/upload', {
+        method: 'POST',
+        headers: { 'authorization': ASSEMBLYAI_KEY, 'content-type': 'application/octet-stream' },
+        body: fileData
+      });
+      const uploadData = JSON.parse(uploadRes);
+      console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
+      res.json({ localFileId, uploadUrl: uploadData.upload_url });
+    } catch (uploadErr) {
+      console.error('AssemblyAI upload error:', uploadErr.message);
+      res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+    }
+  });
+});
   console.log('Running:', cmd);
 
   exec(cmd, { maxBuffer: 1024 * 1024 * 200, timeout: 600000 }, async (err, stdout, stderr) => {
