@@ -325,60 +325,6 @@ app.get('/api/serve-upload-raw/:filename', (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-// ─── PREVIEW SOURCE ───────────────────────────────────────────────────────────
-app.get('/api/preview-source/:localFileId', (req, res) => {
-  const safeId = path.basename(req.params.localFileId || '');
-  if (!safeId) return res.status(400).json({ error: 'localFileId required' });
-
-  const files = fs.readdirSync(UPLOAD_DIR);
-  const match = files.find(f => f.startsWith(safeId));
-  if (!match) return res.status(404).json({ error: 'Preview source not found. Please re-upload.' });
-
-  const filePath = path.join(UPLOAD_DIR, match);
-  const stat = fs.statSync(filePath);
-  const ext = path.extname(filePath).toLowerCase();
-
-  const mime =
-    ext === '.webm' ? 'video/webm' :
-    ext === '.mov' ? 'video/quicktime' :
-    ext === '.mp3' ? 'audio/mpeg' :
-    ext === '.m4a' ? 'audio/mp4' :
-    'video/mp4';
-
-  res.setHeader('Accept-Ranges', 'bytes');
-  res.setHeader('Content-Type', mime);
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || 'https://clipai-ten.vercel.app');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-  const range = req.headers.range;
-  if (!range) {
-    res.setHeader('Content-Length', stat.size);
-    fs.createReadStream(filePath).pipe(res);
-    return;
-  }
-
-  const parts = range.replace(/bytes=/, '').split('-');
-  const start = Number.parseInt(parts[0], 10);
-  const end = parts[1] ? Number.parseInt(parts[1], 10) : stat.size - 1;
-
-  if (Number.isNaN(start) || Number.isNaN(end) || start >= stat.size || end >= stat.size) {
-    res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
-    res.end();
-    return;
-  }
-
-  const chunkSize = end - start + 1;
-  res.writeHead(206, {
-    'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-    'Accept-Ranges': 'bytes',
-    'Content-Length': chunkSize,
-    'Content-Type': mime
-  });
-
-  fs.createReadStream(filePath, { start, end }).pipe(res);
-});
-
-
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
   const { localFileId, startMs, endMs, clipTitle } = req.body;
