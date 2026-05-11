@@ -60,7 +60,7 @@ const UPLOAD_DIR = '/tmp/clipai-uploads';
 if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const BYPASS = '--extractor-args "youtube:player_client=android_embedded,ios,android" --no-warnings --format-sort "ext:mp4:m4a"';
+const BYPASS = '--extractor-args "youtube:player_client=web,web_safari,mweb,tv" --no-warnings --format-sort "ext:mp4:m4a"';
 
 function cookiesArg() {
   return fs.existsSync(COOKIES_FILE) ? `--cookies "${COOKIES_FILE}"` : '';
