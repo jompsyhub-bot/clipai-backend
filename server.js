@@ -411,7 +411,16 @@ function getDrawtextFontOption() {
   return fontPath ? `:fontfile=${fontPath}` : '';
 }
 
-function buildCaptionChunks(words, startMs, endMs, captionLines) {
+function normalizeCaptionSettings(captionSettings) {
+  const settings = captionSettings && typeof captionSettings === 'object' ? captionSettings : {};
+  const size = Math.max(80, Math.min(125, Number(settings.size) || 100));
+  const position = Math.max(62, Math.min(88, Number(settings.position) || 78));
+  const words = Math.max(2, Math.min(4, Math.round(Number(settings.words) || 3)));
+  return { size, position, words };
+}
+
+function buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings) {
+  const settings = normalizeCaptionSettings(captionSettings);
   const clipStart = Number(startMs) || 0;
   const clipEnd = Number(endMs) || clipStart + 45000;
   const transcriptWords = Array.isArray(words) ? words
@@ -425,8 +434,8 @@ function buildCaptionChunks(words, startMs, endMs, captionLines) {
 
   if (transcriptWords.length) {
     const chunks = [];
-    chunkTranscriptWords(transcriptWords).forEach(group => {
-      const text = splitCaptionRows(group.map(w => w.text).join(' '));
+    chunkTranscriptWords(transcriptWords, settings.words, settings.words * 8).forEach(group => {
+      const text = splitCaptionRows(group.map(w => w.text).join(' '), settings.words <= 2 ? 16 : 18);
       const start = Math.max(0, (group[0].start - clipStart) / 1000);
       const lastEnd = Number.isFinite(group[group.length - 1].end) ? group[group.length - 1].end : group[group.length - 1].start + 900;
       const end = Math.max(start + 0.8, Math.min((lastEnd - clipStart) / 1000 + 0.35, (clipEnd - clipStart) / 1000));
@@ -440,11 +449,11 @@ function buildCaptionChunks(words, startMs, endMs, captionLines) {
   const wordsFromCaption = fallbackText.split(/\s+/).filter(Boolean);
   const duration = Math.max(1, (clipEnd - clipStart) / 1000);
   const chunks = [];
-  for (let i = 0; i < wordsFromCaption.length; i += 3) {
-    const group = wordsFromCaption.slice(i, i + 3);
+  for (let i = 0; i < wordsFromCaption.length; i += settings.words) {
+    const group = wordsFromCaption.slice(i, i + settings.words);
     const start = (i / Math.max(wordsFromCaption.length, 1)) * duration;
     const end = Math.min(duration, start + 1.8);
-    chunks.push({ text: splitCaptionRows(group.join(' ')), start, end });
+    chunks.push({ text: splitCaptionRows(group.join(' '), settings.words <= 2 ? 16 : 18), start, end });
   }
   return chunks;
 }
@@ -461,8 +470,9 @@ function normalizeCaptionStyle(captionStyle, captionPreset) {
   return presetMap[captionPreset] || captionStyle || 'tiktok';
 }
 
-function getDrawtextStyle(captionStyle, captionPreset) {
+function getDrawtextStyle(captionStyle, captionPreset, captionSettings) {
   const key = normalizeCaptionStyle(captionStyle, captionPreset);
+  const settings = normalizeCaptionSettings(captionSettings);
   const styles = {
     tiktok: {
       color: 'white',
@@ -537,7 +547,10 @@ function getDrawtextStyle(captionStyle, captionPreset) {
       uppercase: false
     }
   };
-  return styles[key] || styles.tiktok;
+  const style = { ...(styles[key] || styles.tiktok) };
+  style.size = Math.round(style.size * settings.size / 100);
+  style.y = 'h*' + (settings.position / 100).toFixed(2) + '-text_h/2';
+  return style;
 }
 
 function escapeFilterPath(filePath) {
@@ -565,16 +578,16 @@ function drawtextFilterForChunk(chunk, textFilePath, style) {
     `:enable=between(t\\,${start}\\,${end})`;
 }
 
-function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset) {
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings) {
   const filters = [
     'scale=480:854:force_original_aspect_ratio=decrease',
     'pad=480:854:(ow-iw)/2:(oh-ih)/2:black',
     'setpts=PTS-STARTPTS'
   ];
   const cleanupPaths = [];
-  const style = getDrawtextStyle(captionStyle, captionPreset);
+  const style = getDrawtextStyle(captionStyle, captionPreset, captionSettings);
 
-  const chunks = buildCaptionChunks(words, startMs, endMs, captionLines);
+  const chunks = buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings);
   chunks.forEach((chunk, index) => {
     const textFilePath = path.join(DOWNLOAD_DIR, `caption_${requestId}_${index}.txt`);
     fs.writeFileSync(textFilePath, style.uppercase ? chunk.text.toUpperCase() : chunk.text, 'utf8');
@@ -583,6 +596,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
   });
   console.log('Caption chunks:', chunks.length);
   console.log('Caption style:', normalizeCaptionStyle(captionStyle, captionPreset));
+  console.log('Caption settings:', normalizeCaptionSettings(captionSettings));
   if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
   const scriptPath = path.join(DOWNLOAD_DIR, `filter_${requestId}.txt`);
@@ -593,7 +607,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
-  const { localFileId, startMs, endMs, clipTitle, captionLines, words, captionStyle, captionPreset } = req.body;
+  const { localFileId, startMs, endMs, clipTitle, captionLines, words, captionStyle, captionPreset, captionSettings } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
   const trycut = () => {
@@ -612,7 +626,7 @@ app.post('/api/cut-clip', (req, res) => {
     const outputPath = path.join(DOWNLOAD_DIR, `clip_${requestId}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset);
+    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings);
     const args = [
       '-y',
       '-ss', startSec,
