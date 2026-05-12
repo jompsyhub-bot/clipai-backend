@@ -366,7 +366,7 @@ function getDrawtextFontOption() {
     '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf'
   ];
   const fontPath = fontPaths.find(p => fs.existsSync(p));
-  return fontPath ? `:fontfile='${fontPath}'` : '';
+  return fontPath ? `:fontfile=${fontPath}` : '';
 }
 
 function buildCaptionChunks(words, startMs, endMs, captionLines) {
@@ -408,11 +408,16 @@ function buildCaptionChunks(words, startMs, endMs, captionLines) {
   return chunks;
 }
 
-function drawtextFilterForChunk(chunk) {
-  const safeText = escapeDrawtextText(chunk.text);
+function escapeFilterPath(filePath) {
+  return String(filePath || '')
+    .replace(/\\/g, '/')
+    .replace(/:/g, '\\:');
+}
+
+function drawtextFilterForChunk(chunk, textFilePath) {
   const start = chunk.start.toFixed(2);
   const end = chunk.end.toFixed(2);
-  return "drawtext=text='" + safeText + "'" +
+  return 'drawtext=textfile=' + escapeFilterPath(textFilePath) +
     getDrawtextFontOption() +
     ':fontcolor=white' +
     ':fontsize=30' +
@@ -425,22 +430,31 @@ function drawtextFilterForChunk(chunk) {
     ':shadowcolor=black' +
     ':shadowx=2' +
     ':shadowy=2' +
-    `:enable='between(t\\,${start}\\,${end})'`;
+    `:enable=between(t\\,${start}\\,${end})`;
 }
 
-function buildVideoFilter(captionLines, words, startMs, endMs) {
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId) {
   const filters = [
     'scale=480:854:force_original_aspect_ratio=decrease',
     'pad=480:854:(ow-iw)/2:(oh-ih)/2:black',
     'setpts=PTS-STARTPTS'
   ];
+  const cleanupPaths = [];
 
   const chunks = buildCaptionChunks(words, startMs, endMs, captionLines);
-  chunks.forEach(chunk => filters.push(drawtextFilterForChunk(chunk)));
+  chunks.forEach((chunk, index) => {
+    const textFilePath = path.join(DOWNLOAD_DIR, `caption_${requestId}_${index}.txt`);
+    fs.writeFileSync(textFilePath, chunk.text, 'utf8');
+    cleanupPaths.push(textFilePath);
+    filters.push(drawtextFilterForChunk(chunk, textFilePath));
+  });
   console.log('Caption chunks:', chunks.length);
   if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
-  return filters.join(',');
+  const scriptPath = path.join(DOWNLOAD_DIR, `filter_${requestId}.txt`);
+  fs.writeFileSync(scriptPath, `[0:v]${filters.join(',')}[v]`, 'utf8');
+  cleanupPaths.push(scriptPath);
+  return { scriptPath, cleanupPaths };
 }
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
@@ -460,16 +474,19 @@ app.post('/api/cut-clip', (req, res) => {
     if (!match) return res.status(404).json({ error: 'Source file not found. Please re-upload.' });
 
     const inputPath = path.join(UPLOAD_DIR, match);
-    const outputPath = path.join(DOWNLOAD_DIR, `clip_${Date.now()}.mp4`);
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const outputPath = path.join(DOWNLOAD_DIR, `clip_${requestId}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-    const videoFilter = buildVideoFilter(captionLines, words, startMs, endMs);
+    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId);
     const args = [
       '-y',
       '-ss', startSec,
       '-t', durationSec,
       '-i', inputPath,
-      '-vf', videoFilter,
+      '-filter_complex_script', scriptPath,
+      '-map', '[v]',
+      '-map', '0:a?',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '30',
@@ -483,9 +500,11 @@ app.post('/api/cut-clip', (req, res) => {
     ];
 
     console.log('Cutting clip:', clipTitle);
-    console.log('Video filter:', videoFilter);
+    console.log('Filter script:', scriptPath);
     execFile(FFMPEG, args, { maxBuffer: 1024 * 1024 * 500, timeout: 300000 }, (err, stdout, stderr) => {
+      const cleanupTempFiles = () => cleanupPaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
       if (err || !fs.existsSync(outputPath)) {
+        cleanupTempFiles();
         const lines = (stderr || '').split('\n').filter(l => l.trim());
         const errorLines = lines.filter(l =>
           l.includes('Error') || l.includes('error') ||
@@ -506,7 +525,10 @@ app.post('/api/cut-clip', (req, res) => {
       res.setHeader('Content-Length', stat.size);
       const stream = fs.createReadStream(outputPath);
       stream.pipe(res);
-      stream.on('close', () => { setTimeout(() => { try { fs.unlinkSync(outputPath); } catch(e) {} }, 5000); });
+      stream.on('close', () => {
+        cleanupTempFiles();
+        setTimeout(() => { try { fs.unlinkSync(outputPath); } catch(e) {} }, 5000);
+      });
     });
   };
 
