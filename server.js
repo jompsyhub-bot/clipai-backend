@@ -156,6 +156,20 @@ function waitForFile(filePath, timeout = 60000) {
   });
 }
 
+let drawtextSupportPromise = null;
+function checkDrawtextSupport() {
+  if (drawtextSupportPromise) return drawtextSupportPromise;
+  drawtextSupportPromise = new Promise((resolve) => {
+    execFile(FFMPEG, ['-hide_banner', '-filters'], { timeout: 15000, maxBuffer: 1024 * 1024 * 5 }, (err, stdout, stderr) => {
+      const output = `${stdout || ''}\n${stderr || ''}`;
+      const supported = !err && /\sdrawtext\s/.test(output);
+      console.log('FFmpeg drawtext support:', supported ? 'yes' : 'no');
+      resolve(supported);
+    });
+  });
+  return drawtextSupportPromise;
+}
+
 // ─── GET VIDEO INFO ───────────────────────────────────────────────────────────
 app.post('/api/info', async (req, res) => {
   console.log('📥 /api/info:', req.body);
@@ -417,12 +431,14 @@ function drawtextFilterForChunk(chunk) {
 function buildVideoFilter(captionLines, words, startMs, endMs) {
   const filters = [
     'scale=480:854:force_original_aspect_ratio=decrease',
-    'pad=480:854:(ow-iw)/2:(oh-ih)/2:black'
+    'pad=480:854:(ow-iw)/2:(oh-ih)/2:black',
+    'setpts=PTS-STARTPTS'
   ];
 
   const chunks = buildCaptionChunks(words, startMs, endMs, captionLines);
   chunks.forEach(chunk => filters.push(drawtextFilterForChunk(chunk)));
   console.log('Caption chunks:', chunks.length);
+  if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
   return filters.join(',');
 }
@@ -437,6 +453,7 @@ app.post('/api/cut-clip', (req, res) => {
       console.log('⏳ Waiting for ffmpeg...');
       return setTimeout(trycut, 2000);
     }
+    checkDrawtextSupport();
 
     const files = fs.readdirSync(UPLOAD_DIR);
     const match = files.find(f => f.startsWith(localFileId));
