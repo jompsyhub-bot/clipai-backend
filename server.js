@@ -360,6 +360,48 @@ function buildCaptionText(captionLines) {
   return text.replace(/\s+/g, ' ').slice(0, 120);
 }
 
+function splitCaptionRows(text, maxLineChars = 18) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const rows = [];
+  let row = '';
+
+  words.forEach(word => {
+    const next = row ? `${row} ${word}` : word;
+    if (next.length <= maxLineChars || !row) {
+      row = next;
+    } else {
+      rows.push(row);
+      row = word;
+    }
+  });
+  if (row) rows.push(row);
+
+  return rows.slice(0, 2).join('\n');
+}
+
+function chunkTranscriptWords(transcriptWords, maxWords = 3, maxChars = 22) {
+  const chunks = [];
+  let group = [];
+
+  const flush = () => {
+    if (!group.length) return;
+    chunks.push(group);
+    group = [];
+  };
+
+  transcriptWords.forEach(word => {
+    const next = group.concat(word);
+    const nextText = next.map(w => w.text).join(' ');
+    if (group.length && (next.length > maxWords || nextText.length > maxChars)) {
+      flush();
+    }
+    group.push(word);
+  });
+
+  flush();
+  return chunks;
+}
+
 function getDrawtextFontOption() {
   const fontPaths = [
     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -383,14 +425,13 @@ function buildCaptionChunks(words, startMs, endMs, captionLines) {
 
   if (transcriptWords.length) {
     const chunks = [];
-    for (let i = 0; i < transcriptWords.length; i += 4) {
-      const group = transcriptWords.slice(i, i + 4);
-      const text = group.map(w => w.text).join(' ');
+    chunkTranscriptWords(transcriptWords).forEach(group => {
+      const text = splitCaptionRows(group.map(w => w.text).join(' '));
       const start = Math.max(0, (group[0].start - clipStart) / 1000);
       const lastEnd = Number.isFinite(group[group.length - 1].end) ? group[group.length - 1].end : group[group.length - 1].start + 900;
       const end = Math.max(start + 0.8, Math.min((lastEnd - clipStart) / 1000 + 0.35, (clipEnd - clipStart) / 1000));
       chunks.push({ text, start, end });
-    }
+    });
     return chunks;
   }
 
@@ -399,11 +440,11 @@ function buildCaptionChunks(words, startMs, endMs, captionLines) {
   const wordsFromCaption = fallbackText.split(/\s+/).filter(Boolean);
   const duration = Math.max(1, (clipEnd - clipStart) / 1000);
   const chunks = [];
-  for (let i = 0; i < wordsFromCaption.length; i += 4) {
-    const group = wordsFromCaption.slice(i, i + 4);
+  for (let i = 0; i < wordsFromCaption.length; i += 3) {
+    const group = wordsFromCaption.slice(i, i + 3);
     const start = (i / Math.max(wordsFromCaption.length, 1)) * duration;
     const end = Math.min(duration, start + 1.8);
-    chunks.push({ text: group.join(' '), start, end });
+    chunks.push({ text: splitCaptionRows(group.join(' ')), start, end });
   }
   return chunks;
 }
@@ -425,10 +466,10 @@ function getDrawtextStyle(captionStyle, captionPreset) {
   const styles = {
     tiktok: {
       color: 'white',
-      size: 30,
+      size: 26,
       box: true,
       boxcolor: 'black@0.45',
-      boxborderw: 14,
+      boxborderw: 10,
       shadowcolor: 'black',
       shadowx: 2,
       shadowy: 2,
@@ -437,10 +478,10 @@ function getDrawtextStyle(captionStyle, captionPreset) {
     },
     mrbeast: {
       color: '0xFFE600',
-      size: 34,
+      size: 28,
       box: true,
       boxcolor: 'black@0.25',
-      boxborderw: 12,
+      boxborderw: 10,
       shadowcolor: 'black',
       shadowx: 3,
       shadowy: 3,
@@ -449,7 +490,7 @@ function getDrawtextStyle(captionStyle, captionPreset) {
     },
     minimal: {
       color: 'white',
-      size: 24,
+      size: 22,
       box: false,
       boxcolor: 'black@0',
       boxborderw: 0,
@@ -461,10 +502,10 @@ function getDrawtextStyle(captionStyle, captionPreset) {
     },
     karaoke: {
       color: '0x3ECF8E',
-      size: 30,
+      size: 26,
       box: true,
       boxcolor: 'black@0.42',
-      boxborderw: 14,
+      boxborderw: 10,
       shadowcolor: 'black',
       shadowx: 2,
       shadowy: 2,
@@ -473,7 +514,7 @@ function getDrawtextStyle(captionStyle, captionPreset) {
     },
     neon: {
       color: '0x00FF88',
-      size: 30,
+      size: 25,
       box: false,
       boxcolor: 'black@0',
       boxborderw: 0,
@@ -485,10 +526,10 @@ function getDrawtextStyle(captionStyle, captionPreset) {
     },
     subtitle: {
       color: 'white',
-      size: 24,
+      size: 21,
       box: true,
       boxcolor: 'black@0.75',
-      boxborderw: 12,
+      boxborderw: 10,
       shadowcolor: 'black',
       shadowx: 0,
       shadowy: 0,
@@ -512,7 +553,7 @@ function drawtextFilterForChunk(chunk, textFilePath, style) {
     getDrawtextFontOption() +
     ':fontcolor=' + style.color +
     ':fontsize=' + style.size +
-    ':line_spacing=8' +
+    ':line_spacing=6' +
     ':box=' + (style.box ? '1' : '0') +
     ':boxcolor=' + style.boxcolor +
     ':boxborderw=' + style.boxborderw +
