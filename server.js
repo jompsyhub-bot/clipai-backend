@@ -408,47 +408,140 @@ function buildCaptionChunks(words, startMs, endMs, captionLines) {
   return chunks;
 }
 
+function normalizeCaptionStyle(captionStyle, captionPreset) {
+  const presetMap = {
+    'tiktok-bold': 'tiktok',
+    'yellow-pop': 'mrbeast',
+    'minimal-white': 'minimal',
+    karaoke: 'karaoke',
+    neon: 'neon',
+    subtitle: 'subtitle'
+  };
+  return presetMap[captionPreset] || captionStyle || 'tiktok';
+}
+
+function getDrawtextStyle(captionStyle, captionPreset) {
+  const key = normalizeCaptionStyle(captionStyle, captionPreset);
+  const styles = {
+    tiktok: {
+      color: 'white',
+      size: 30,
+      box: true,
+      boxcolor: 'black@0.45',
+      boxborderw: 14,
+      shadowcolor: 'black',
+      shadowx: 2,
+      shadowy: 2,
+      y: 'h-text_h-96',
+      uppercase: false
+    },
+    mrbeast: {
+      color: '0xFFE600',
+      size: 34,
+      box: true,
+      boxcolor: 'black@0.25',
+      boxborderw: 12,
+      shadowcolor: 'black',
+      shadowx: 3,
+      shadowy: 3,
+      y: 'h-text_h-110',
+      uppercase: true
+    },
+    minimal: {
+      color: 'white',
+      size: 24,
+      box: false,
+      boxcolor: 'black@0',
+      boxborderw: 0,
+      shadowcolor: 'black',
+      shadowx: 1,
+      shadowy: 1,
+      y: 'h-text_h-78',
+      uppercase: false
+    },
+    karaoke: {
+      color: '0x3ECF8E',
+      size: 30,
+      box: true,
+      boxcolor: 'black@0.42',
+      boxborderw: 14,
+      shadowcolor: 'black',
+      shadowx: 2,
+      shadowy: 2,
+      y: 'h-text_h-96',
+      uppercase: false
+    },
+    neon: {
+      color: '0x00FF88',
+      size: 30,
+      box: false,
+      boxcolor: 'black@0',
+      boxborderw: 0,
+      shadowcolor: '0x00FF88',
+      shadowx: 0,
+      shadowy: 0,
+      y: 'h-text_h-96',
+      uppercase: true
+    },
+    subtitle: {
+      color: 'white',
+      size: 24,
+      box: true,
+      boxcolor: 'black@0.75',
+      boxborderw: 12,
+      shadowcolor: 'black',
+      shadowx: 0,
+      shadowy: 0,
+      y: 'h-text_h-70',
+      uppercase: false
+    }
+  };
+  return styles[key] || styles.tiktok;
+}
+
 function escapeFilterPath(filePath) {
   return String(filePath || '')
     .replace(/\\/g, '/')
     .replace(/:/g, '\\:');
 }
 
-function drawtextFilterForChunk(chunk, textFilePath) {
+function drawtextFilterForChunk(chunk, textFilePath, style) {
   const start = chunk.start.toFixed(2);
   const end = chunk.end.toFixed(2);
   return 'drawtext=textfile=' + escapeFilterPath(textFilePath) +
     getDrawtextFontOption() +
-    ':fontcolor=white' +
-    ':fontsize=30' +
+    ':fontcolor=' + style.color +
+    ':fontsize=' + style.size +
     ':line_spacing=8' +
-    ':box=1' +
-    ':boxcolor=black@0.50' +
-    ':boxborderw=14' +
+    ':box=' + (style.box ? '1' : '0') +
+    ':boxcolor=' + style.boxcolor +
+    ':boxborderw=' + style.boxborderw +
     ':x=(w-text_w)/2' +
-    ':y=h-text_h-96' +
-    ':shadowcolor=black' +
-    ':shadowx=2' +
-    ':shadowy=2' +
+    ':y=' + style.y +
+    ':shadowcolor=' + style.shadowcolor +
+    ':shadowx=' + style.shadowx +
+    ':shadowy=' + style.shadowy +
     `:enable=between(t\\,${start}\\,${end})`;
 }
 
-function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId) {
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset) {
   const filters = [
     'scale=480:854:force_original_aspect_ratio=decrease',
     'pad=480:854:(ow-iw)/2:(oh-ih)/2:black',
     'setpts=PTS-STARTPTS'
   ];
   const cleanupPaths = [];
+  const style = getDrawtextStyle(captionStyle, captionPreset);
 
   const chunks = buildCaptionChunks(words, startMs, endMs, captionLines);
   chunks.forEach((chunk, index) => {
     const textFilePath = path.join(DOWNLOAD_DIR, `caption_${requestId}_${index}.txt`);
-    fs.writeFileSync(textFilePath, chunk.text, 'utf8');
+    fs.writeFileSync(textFilePath, style.uppercase ? chunk.text.toUpperCase() : chunk.text, 'utf8');
     cleanupPaths.push(textFilePath);
-    filters.push(drawtextFilterForChunk(chunk, textFilePath));
+    filters.push(drawtextFilterForChunk(chunk, textFilePath, style));
   });
   console.log('Caption chunks:', chunks.length);
+  console.log('Caption style:', normalizeCaptionStyle(captionStyle, captionPreset));
   if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
   const scriptPath = path.join(DOWNLOAD_DIR, `filter_${requestId}.txt`);
@@ -459,7 +552,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId) 
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
-  const { localFileId, startMs, endMs, clipTitle, captionLines, words } = req.body;
+  const { localFileId, startMs, endMs, clipTitle, captionLines, words, captionStyle, captionPreset } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
   const trycut = () => {
@@ -478,7 +571,7 @@ app.post('/api/cut-clip', (req, res) => {
     const outputPath = path.join(DOWNLOAD_DIR, `clip_${requestId}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId);
+    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset);
     const args = [
       '-y',
       '-ss', startSec,
