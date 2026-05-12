@@ -1,5 +1,5 @@
 const express = require('express');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -325,9 +325,57 @@ app.get('/api/serve-upload-raw/:filename', (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
+function escapeDrawtextText(text) {
+  return String(text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, ' ');
+}
+
+function buildCaptionText(captionLines, clipTitle) {
+  const lines = Array.isArray(captionLines) ? captionLines : [];
+  const text = lines
+    .map(line => typeof line === 'string' ? line : (line && (line.text || line.caption || line.line)))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return (text || clipTitle || '').replace(/\s+/g, ' ').slice(0, 180);
+}
+
+function buildVideoFilter(captionLines, clipTitle) {
+  const filters = [
+    'scale=480:854:force_original_aspect_ratio=decrease',
+    'pad=480:854:(ow-iw)/2:(oh-ih)/2:black'
+  ];
+
+  const captionText = buildCaptionText(captionLines, clipTitle);
+  if (captionText) {
+    filters.push(
+      "drawtext=text='" + escapeDrawtextText(captionText) + "'" +
+      ':fontcolor=white' +
+      ':fontsize=28' +
+      ':line_spacing=8' +
+      ':box=1' +
+      ':boxcolor=black@0.45' +
+      ':boxborderw=14' +
+      ':x=(w-text_w)/2' +
+      ':y=h-text_h-80' +
+      ':shadowcolor=black' +
+      ':shadowx=2' +
+      ':shadowy=2'
+    );
+  }
+
+  return filters.join(',');
+}
+
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
-  const { localFileId, startMs, endMs, clipTitle } = req.body;
+  const { localFileId, startMs, endMs, clipTitle, captionLines } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
   const trycut = () => {
@@ -344,16 +392,28 @@ app.post('/api/cut-clip', (req, res) => {
     const outputPath = path.join(DOWNLOAD_DIR, `clip_${Date.now()}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-
-    const cmd = `"${FFMPEG}" -y -ss ${startSec} -t ${durationSec} -i "${inputPath}" ` +
-      `-vf "scale=480:854:force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2:black" ` +
-      `-c:v libx264 -preset ultrafast -crf 30 -tune fastdecode ` +
-      `-c:a aac -b:a 64k -ac 1 ` +
-      `-movflags +faststart -threads 1 ` +
-      `"${outputPath}"`;
+    const videoFilter = buildVideoFilter(captionLines, clipTitle);
+    const args = [
+      '-y',
+      '-ss', startSec,
+      '-t', durationSec,
+      '-i', inputPath,
+      '-vf', videoFilter,
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '30',
+      '-tune', 'fastdecode',
+      '-c:a', 'aac',
+      '-b:a', '64k',
+      '-ac', '1',
+      '-movflags', '+faststart',
+      '-threads', '1',
+      outputPath
+    ];
 
     console.log('Cutting clip:', clipTitle);
-    exec(cmd, { maxBuffer: 1024 * 1024 * 500, timeout: 300000 }, (err, stdout, stderr) => {
+    console.log('Video filter:', videoFilter);
+    execFile(FFMPEG, args, { maxBuffer: 1024 * 1024 * 500, timeout: 300000 }, (err, stdout, stderr) => {
       if (err || !fs.existsSync(outputPath)) {
         const lines = (stderr || '').split('\n').filter(l => l.trim());
         const errorLines = lines.filter(l =>
