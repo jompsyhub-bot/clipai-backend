@@ -336,46 +336,100 @@ function escapeDrawtextText(text) {
     .replace(/\r?\n/g, ' ');
 }
 
-function buildCaptionText(captionLines, clipTitle) {
+function buildCaptionText(captionLines) {
   const lines = Array.isArray(captionLines) ? captionLines : [];
   const text = lines
     .map(line => typeof line === 'string' ? line : (line && (line.text || line.caption || line.line)))
     .filter(Boolean)
     .join(' ')
     .trim();
-  return (text || clipTitle || '').replace(/\s+/g, ' ').slice(0, 180);
+  return text.replace(/\s+/g, ' ').slice(0, 120);
 }
 
-function buildVideoFilter(captionLines, clipTitle) {
+function getDrawtextFontOption() {
+  const fontPaths = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf'
+  ];
+  const fontPath = fontPaths.find(p => fs.existsSync(p));
+  return fontPath ? `:fontfile='${fontPath}'` : '';
+}
+
+function buildCaptionChunks(words, startMs, endMs, captionLines) {
+  const clipStart = Number(startMs) || 0;
+  const clipEnd = Number(endMs) || clipStart + 45000;
+  const transcriptWords = Array.isArray(words) ? words
+    .map(w => ({
+      text: String(w.text || w.word || '').trim(),
+      start: Number(w.start),
+      end: Number(w.end)
+    }))
+    .filter(w => w.text && Number.isFinite(w.start) && w.start >= clipStart && w.start <= clipEnd)
+    .slice(0, 120) : [];
+
+  if (transcriptWords.length) {
+    const chunks = [];
+    for (let i = 0; i < transcriptWords.length; i += 4) {
+      const group = transcriptWords.slice(i, i + 4);
+      const text = group.map(w => w.text).join(' ');
+      const start = Math.max(0, (group[0].start - clipStart) / 1000);
+      const lastEnd = Number.isFinite(group[group.length - 1].end) ? group[group.length - 1].end : group[group.length - 1].start + 900;
+      const end = Math.max(start + 0.8, Math.min((lastEnd - clipStart) / 1000 + 0.35, (clipEnd - clipStart) / 1000));
+      chunks.push({ text, start, end });
+    }
+    return chunks;
+  }
+
+  const fallbackText = buildCaptionText(captionLines);
+  if (!fallbackText) return [];
+  const wordsFromCaption = fallbackText.split(/\s+/).filter(Boolean);
+  const duration = Math.max(1, (clipEnd - clipStart) / 1000);
+  const chunks = [];
+  for (let i = 0; i < wordsFromCaption.length; i += 4) {
+    const group = wordsFromCaption.slice(i, i + 4);
+    const start = (i / Math.max(wordsFromCaption.length, 1)) * duration;
+    const end = Math.min(duration, start + 1.8);
+    chunks.push({ text: group.join(' '), start, end });
+  }
+  return chunks;
+}
+
+function drawtextFilterForChunk(chunk) {
+  const safeText = escapeDrawtextText(chunk.text);
+  const start = chunk.start.toFixed(2);
+  const end = chunk.end.toFixed(2);
+  return "drawtext=text='" + safeText + "'" +
+    getDrawtextFontOption() +
+    ':fontcolor=white' +
+    ':fontsize=30' +
+    ':line_spacing=8' +
+    ':box=1' +
+    ':boxcolor=black@0.50' +
+    ':boxborderw=14' +
+    ':x=(w-text_w)/2' +
+    ':y=h-text_h-96' +
+    ':shadowcolor=black' +
+    ':shadowx=2' +
+    ':shadowy=2' +
+    `:enable='between(t\\,${start}\\,${end})'`;
+}
+
+function buildVideoFilter(captionLines, words, startMs, endMs) {
   const filters = [
     'scale=480:854:force_original_aspect_ratio=decrease',
     'pad=480:854:(ow-iw)/2:(oh-ih)/2:black'
   ];
 
-  const captionText = buildCaptionText(captionLines, clipTitle);
-  if (captionText) {
-    filters.push(
-      "drawtext=text='" + escapeDrawtextText(captionText) + "'" +
-      ':fontcolor=white' +
-      ':fontsize=28' +
-      ':line_spacing=8' +
-      ':box=1' +
-      ':boxcolor=black@0.45' +
-      ':boxborderw=14' +
-      ':x=(w-text_w)/2' +
-      ':y=h-text_h-80' +
-      ':shadowcolor=black' +
-      ':shadowx=2' +
-      ':shadowy=2'
-    );
-  }
+  const chunks = buildCaptionChunks(words, startMs, endMs, captionLines);
+  chunks.forEach(chunk => filters.push(drawtextFilterForChunk(chunk)));
+  console.log('Caption chunks:', chunks.length);
 
   return filters.join(',');
 }
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
-  const { localFileId, startMs, endMs, clipTitle, captionLines } = req.body;
+  const { localFileId, startMs, endMs, clipTitle, captionLines, words } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
   const trycut = () => {
@@ -392,7 +446,7 @@ app.post('/api/cut-clip', (req, res) => {
     const outputPath = path.join(DOWNLOAD_DIR, `clip_${Date.now()}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-    const videoFilter = buildVideoFilter(captionLines, clipTitle);
+    const videoFilter = buildVideoFilter(captionLines, words, startMs, endMs);
     const args = [
       '-y',
       '-ss', startSec,
