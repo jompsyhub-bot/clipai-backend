@@ -578,7 +578,31 @@ function drawtextFilterForChunk(chunk, textFilePath, style) {
     `:enable=between(t\\,${start}\\,${end})`;
 }
 
-function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings) {
+function drawtextHookOverlayFilter(textFilePath) {
+  return 'drawtext=textfile=' + escapeFilterPath(textFilePath) +
+    getDrawtextFontOption() +
+    ':fontcolor=white' +
+    ':fontsize=32' +
+    ':line_spacing=8' +
+    ':box=1' +
+    ':boxcolor=black@0.58' +
+    ':boxborderw=16' +
+    ':x=(w-text_w)/2' +
+    ':y=h*0.18' +
+    ':shadowcolor=black' +
+    ':shadowx=3' +
+    ':shadowy=3' +
+    ':enable=between(t\\,0\\,2.8)';
+}
+
+function normalizeHookOverlayText(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 95);
+}
+
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay) {
   const filters = [
     'scale=480:854:force_original_aspect_ratio=decrease',
     'pad=480:854:(ow-iw)/2:(oh-ih)/2:black',
@@ -586,6 +610,14 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
   ];
   const cleanupPaths = [];
   const style = getDrawtextStyle(captionStyle, captionPreset, captionSettings);
+  const hookText = normalizeHookOverlayText(hookOverlay);
+
+  if (hookText) {
+    const hookFilePath = path.join(DOWNLOAD_DIR, `hook_${requestId}.txt`);
+    fs.writeFileSync(hookFilePath, splitCaptionRows(hookText.toUpperCase(), 18), 'utf8');
+    cleanupPaths.push(hookFilePath);
+    filters.push(drawtextHookOverlayFilter(hookFilePath));
+  }
 
   const chunks = buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings);
   chunks.forEach((chunk, index) => {
@@ -597,6 +629,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
   console.log('Caption chunks:', chunks.length);
   console.log('Caption style:', normalizeCaptionStyle(captionStyle, captionPreset));
   console.log('Caption settings:', normalizeCaptionSettings(captionSettings));
+  if (hookText) console.log('Hook overlay:', hookText);
   if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
   const scriptPath = path.join(DOWNLOAD_DIR, `filter_${requestId}.txt`);
@@ -607,7 +640,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
-  const { localFileId, startMs, endMs, clipTitle, captionLines, words, captionStyle, captionPreset, captionSettings } = req.body;
+  const { localFileId, startMs, endMs, clipTitle, captionLines, words, captionStyle, captionPreset, captionSettings, hookOverlay } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
   const trycut = () => {
@@ -626,7 +659,7 @@ app.post('/api/cut-clip', (req, res) => {
     const outputPath = path.join(DOWNLOAD_DIR, `clip_${requestId}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings);
+    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay);
     const args = [
       '-y',
       '-ss', startSec,
