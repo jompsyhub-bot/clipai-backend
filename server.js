@@ -48,11 +48,26 @@ function cookiesArg() {
 }
 
 function proxyArg() {
-  return process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}"` : '';
+  const proxyUrl = getProxyUrl();
+  return proxyUrl ? `--proxy "${proxyUrl}"` : '';
 }
 
 function ytArgs() {
   return `${BYPASS} ${cookiesArg()} ${proxyArg()}`;
+}
+
+function getProxyUrl() {
+  const raw = (process.env.PROXY_URL || '').trim();
+  if (!raw || raw.toLowerCase() === 'none' || raw.toLowerCase() === 'false') return '';
+  return raw;
+}
+
+function describeProxyProblem(stderr) {
+  const text = String(stderr || '');
+  if (/407|Proxy Authentication Required|Unable to connect to proxy|Tunnel connection failed/i.test(text)) {
+    return 'Proxy authentication failed. Your PROXY_URL on Render requires username/password or is invalid. Remove PROXY_URL to download directly, or set it as http://USER:PASS@HOST:PORT.';
+  }
+  return '';
 }
 
 function ytArgList(extra = []) {
@@ -64,7 +79,8 @@ function ytArgList(extra = []) {
     '--fragment-retries', '3'
   ];
   if (fs.existsSync(COOKIES_FILE)) args.push('--cookies', COOKIES_FILE);
-  if (process.env.PROXY_URL) args.push('--proxy', process.env.PROXY_URL);
+  const proxyUrl = getProxyUrl();
+  if (proxyUrl) args.push('--proxy', proxyUrl);
   return args.concat(extra);
 }
 
@@ -75,6 +91,8 @@ function publicBaseUrl(req) {
 }
 
 function compactProcessError(stderr, fallback = 'YouTube import failed') {
+  const proxyProblem = describeProxyProblem(stderr);
+  if (proxyProblem) return proxyProblem;
   const text = String(stderr || '').trim();
   if (!text) return fallback;
   const important = text.split('\n').filter(line =>
