@@ -17,10 +17,11 @@ app.use((req, res, next) => {
   if (origin && allowed.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
-    res.setHeader('Access-Control-Allow-Origin', 'https://clipai-ten.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', 'https://clipai-ten.vercel.app');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS,DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-filename,x-requested-with');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-filename,x-requested-with,Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length,Content-Range,Accept-Ranges');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   next();
@@ -52,6 +53,59 @@ function proxyArg() {
 
 function ytArgs() {
   return `${BYPASS} ${cookiesArg()} ${proxyArg()}`;
+}
+
+function ytArgList(extra = []) {
+  const args = [
+    '--extractor-args', 'youtube:player_client=android_embedded,ios,android,web',
+    '--no-warnings',
+    '--format-sort', 'ext:mp4:m4a',
+    '--retries', '3',
+    '--fragment-retries', '3'
+  ];
+  if (fs.existsSync(COOKIES_FILE)) args.push('--cookies', COOKIES_FILE);
+  if (process.env.PROXY_URL) args.push('--proxy', process.env.PROXY_URL);
+  return args.concat(extra);
+}
+
+function publicBaseUrl(req) {
+  const proto = req.headers['x-forwarded-proto'] || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  return `${proto}://${host}`;
+}
+
+function compactProcessError(stderr, fallback = 'YouTube import failed') {
+  const text = String(stderr || '').trim();
+  if (!text) return fallback;
+  const important = text.split('\n').filter(line =>
+    /error|failed|unavailable|sign in|confirm|private|copyright|bot|http error|forbidden/i.test(line)
+  );
+  return (important.length ? important.join(' | ') : text.split('\n').slice(-4).join(' | ')).slice(0, 600);
+}
+
+function streamVideoFile(req, res, filePath, contentType = 'video/mp4') {
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  const stat = fs.statSync(filePath);
+  const range = req.headers.range;
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', contentType);
+
+  if (range) {
+    const [startRaw, endRaw] = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(startRaw, 10);
+    const end = endRaw ? parseInt(endRaw, 10) : stat.size - 1;
+    if (Number.isNaN(start) || Number.isNaN(end) || start >= stat.size || end >= stat.size) {
+      res.setHeader('Content-Range', `bytes */${stat.size}`);
+      return res.status(416).end();
+    }
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+    res.setHeader('Content-Length', end - start + 1);
+    return fs.createReadStream(filePath, { start, end }).pipe(res);
+  }
+
+  res.setHeader('Content-Length', stat.size);
+  fs.createReadStream(filePath).pipe(res);
 }
 
 // ─── BINARY DOWNLOADER ───────────────────────────────────────────────────────
@@ -259,16 +313,31 @@ app.post('/api/youtube-upload', async (req, res) => {
 
   const localFileId = `yt_${Date.now()}`;
   const outputPath = path.join(UPLOAD_DIR, localFileId + '.mp4');
-  const cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
-  console.log('Running:', cmd);
+  const args = ytArgList([
+    '--ffmpeg-location', FFMPEG,
+    '--no-playlist',
+    '--force-overwrites',
+    '-f', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[ext=mp4]/best',
+    '--merge-output-format', 'mp4',
+    '-o', outputPath,
+    url
+  ]);
+  console.log('Running yt-dlp:', args.join(' '));
 
-  exec(cmd, { maxBuffer: 1024 * 1024 * 200, timeout: 600000 }, async (err, stdout, stderr) => {
-    if (err) return res.status(500).json({ error: 'YouTube download failed: ' + stderr.substring(0, 200) });
+  execFile(YTDLP, args, { maxBuffer: 1024 * 1024 * 200, timeout: 900000 }, async (err, stdout, stderr) => {
+    if (err) {
+      console.error('YouTube download failed:', compactProcessError(stderr, err.message));
+      return res.status(500).json({
+        error: compactProcessError(stderr, 'YouTube download failed. Try another public video or configure YT_COOKIES on the backend.')
+      });
+    }
     if (!fs.existsSync(outputPath)) return res.status(500).json({ error: 'Downloaded file not found' });
     console.log('✅ YouTube downloaded, size:', fs.statSync(outputPath).size);
 
+    const baseUrl = publicBaseUrl(req);
+    const previewUrl = `${baseUrl}/api/serve-upload/${localFileId}`;
     const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
-    if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+    if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: previewUrl, previewUrl, videoUrl: previewUrl });
 
     try {
       const fileData = fs.readFileSync(outputPath);
@@ -279,10 +348,10 @@ app.post('/api/youtube-upload', async (req, res) => {
       });
       const uploadData = JSON.parse(uploadRes);
       console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
-      res.json({ localFileId, uploadUrl: uploadData.upload_url });
+      res.json({ localFileId, uploadUrl: uploadData.upload_url, previewUrl, videoUrl: previewUrl });
     } catch (uploadErr) {
       console.error('AssemblyAI upload error:', uploadErr.message);
-      res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+      res.json({ localFileId, uploadUrl: previewUrl, previewUrl, videoUrl: previewUrl });
     }
   });
 });
@@ -290,11 +359,7 @@ app.post('/api/youtube-upload', async (req, res) => {
 // ─── SERVE UPLOADED FILE ──────────────────────────────────────────────────────
 app.get('/api/serve-upload/:id', (req, res) => {
   const filePath = path.join(UPLOAD_DIR, req.params.id + '.mp4');
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
-  const stat = fs.statSync(filePath);
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Content-Length', stat.size);
-  fs.createReadStream(filePath).pipe(res);
+  streamVideoFile(req, res, filePath, 'video/mp4');
 });
 
 // ─── LOCAL FILE UPLOAD ────────────────────────────────────────────────────────
@@ -332,11 +397,7 @@ app.post('/api/upload-local', async (req, res) => {
 
 app.get('/api/serve-upload-raw/:filename', (req, res) => {
   const filePath = path.join(UPLOAD_DIR, req.params.filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
-  const stat = fs.statSync(filePath);
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Content-Length', stat.size);
-  fs.createReadStream(filePath).pipe(res);
+  streamVideoFile(req, res, filePath, 'video/mp4');
 });
 
 function escapeDrawtextText(text) {
