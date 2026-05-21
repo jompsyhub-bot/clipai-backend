@@ -481,6 +481,30 @@ function chunkTranscriptWords(transcriptWords, maxWords = 3, maxChars = 22) {
   return chunks;
 }
 
+function normalizeCaptionTimeline(chunks, clipDurationSec) {
+  const duration = Number(clipDurationSec) || 0;
+  const gap = 0.08;
+  return chunks
+    .filter(chunk => chunk && chunk.text && Number.isFinite(chunk.start) && Number.isFinite(chunk.end))
+    .sort((a, b) => a.start - b.start)
+    .map((chunk, index, list) => {
+      const next = list[index + 1];
+      const start = Math.max(0, chunk.start);
+      const naturalEnd = Math.max(start + 0.35, chunk.end);
+      const nextLimitedEnd = next ? Math.min(naturalEnd, Math.max(start + 0.35, next.start - gap)) : naturalEnd;
+      const boundedEnd = duration ? Math.min(nextLimitedEnd, duration) : nextLimitedEnd;
+      return {
+        ...chunk,
+        start,
+        end: Math.max(start + 0.25, boundedEnd)
+      };
+    })
+    .filter((chunk, index, list) => {
+      const next = list[index + 1];
+      return !next || chunk.end <= next.start - 0.01;
+    });
+}
+
 function getDrawtextFontOption() {
   const fontPaths = [
     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -520,7 +544,7 @@ function buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings
       const end = Math.max(start + 0.8, Math.min((lastEnd - clipStart) / 1000 + 0.35, (clipEnd - clipStart) / 1000));
       chunks.push({ text, start, end });
     });
-    return chunks;
+    return normalizeCaptionTimeline(chunks, (clipEnd - clipStart) / 1000);
   }
 
   const fallbackText = buildCaptionText(captionLines);
@@ -534,7 +558,7 @@ function buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings
     const end = Math.min(duration, start + 1.8);
     chunks.push({ text: splitCaptionRows(group.join(' '), settings.words <= 2 ? 16 : 18), start, end });
   }
-  return chunks;
+  return normalizeCaptionTimeline(chunks, duration);
 }
 
 function normalizeCaptionStyle(captionStyle, captionPreset) {
@@ -549,9 +573,48 @@ function normalizeCaptionStyle(captionStyle, captionPreset) {
   return presetMap[captionPreset] || captionStyle || 'tiktok';
 }
 
-function getDrawtextStyle(captionStyle, captionPreset, captionSettings) {
+function normalizeExportFormat(exportPreset, exportQuality) {
+  const presetRaw = String(exportPreset || '').toLowerCase();
+  const qualityRaw = String(exportQuality || '').toLowerCase();
+  const preset = ['square', 'landscape'].includes(presetRaw) ? presetRaw : 'vertical';
+  const quality = /1080/.test(qualityRaw) ? '1080p' : '720p';
+
+  const formats = {
+    vertical: {
+      label: 'Vertical',
+      filenameTag: '9x16',
+      width: quality === '1080p' ? 1080 : 720,
+      height: quality === '1080p' ? 1920 : 1280
+    },
+    square: {
+      label: 'Square',
+      filenameTag: '1x1',
+      width: quality === '1080p' ? 1080 : 720,
+      height: quality === '1080p' ? 1080 : 720
+    },
+    landscape: {
+      label: 'Landscape',
+      filenameTag: '16x9',
+      width: quality === '1080p' ? 1920 : 1280,
+      height: quality === '1080p' ? 1080 : 720
+    }
+  };
+
+  const format = formats[preset];
+  return {
+    ...format,
+    preset,
+    quality,
+    fontScale: Math.max(0.85, format.height / 1280),
+    crf: quality === '1080p' ? '23' : '25',
+    audioBitrate: quality === '1080p' ? '128k' : '96k'
+  };
+}
+
+function getDrawtextStyle(captionStyle, captionPreset, captionSettings, exportFormat) {
   const key = normalizeCaptionStyle(captionStyle, captionPreset);
   const settings = normalizeCaptionSettings(captionSettings);
+  const format = exportFormat || normalizeExportFormat();
   const styles = {
     tiktok: {
       color: 'white',
@@ -627,7 +690,10 @@ function getDrawtextStyle(captionStyle, captionPreset, captionSettings) {
     }
   };
   const style = { ...(styles[key] || styles.tiktok) };
-  style.size = Math.round(style.size * settings.size / 100);
+  style.size = Math.round(style.size * settings.size / 100 * format.fontScale);
+  style.boxborderw = Math.round(style.boxborderw * format.fontScale);
+  style.shadowx = Math.round(style.shadowx * format.fontScale);
+  style.shadowy = Math.round(style.shadowy * format.fontScale);
   style.y = 'h*' + (settings.position / 100).toFixed(2) + '-text_h/2';
   return style;
 }
@@ -657,20 +723,21 @@ function drawtextFilterForChunk(chunk, textFilePath, style) {
     `:enable=between(t\\,${start}\\,${end})`;
 }
 
-function drawtextHookOverlayFilter(textFilePath) {
+function drawtextHookOverlayFilter(textFilePath, exportFormat) {
+  const scale = (exportFormat || normalizeExportFormat()).fontScale;
   return 'drawtext=textfile=' + escapeFilterPath(textFilePath) +
     getDrawtextFontOption() +
     ':fontcolor=white' +
-    ':fontsize=32' +
-    ':line_spacing=8' +
+    ':fontsize=' + Math.round(32 * scale) +
+    ':line_spacing=' + Math.round(8 * scale) +
     ':box=1' +
     ':boxcolor=black@0.58' +
-    ':boxborderw=16' +
+    ':boxborderw=' + Math.round(16 * scale) +
     ':x=(w-text_w)/2' +
     ':y=h*0.18' +
     ':shadowcolor=black' +
-    ':shadowx=3' +
-    ':shadowy=3' +
+    ':shadowx=' + Math.round(3 * scale) +
+    ':shadowy=' + Math.round(3 * scale) +
     ':enable=between(t\\,0\\,2.8)';
 }
 
@@ -681,21 +748,22 @@ function normalizeHookOverlayText(text) {
     .slice(0, 95);
 }
 
-function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay) {
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat) {
+  const format = exportFormat || normalizeExportFormat();
   const filters = [
-    'scale=480:854:force_original_aspect_ratio=decrease',
-    'pad=480:854:(ow-iw)/2:(oh-ih)/2:black',
+    `scale=${format.width}:${format.height}:force_original_aspect_ratio=decrease`,
+    `pad=${format.width}:${format.height}:(ow-iw)/2:(oh-ih)/2:black`,
     'setpts=PTS-STARTPTS'
   ];
   const cleanupPaths = [];
-  const style = getDrawtextStyle(captionStyle, captionPreset, captionSettings);
+  const style = getDrawtextStyle(captionStyle, captionPreset, captionSettings, format);
   const hookText = normalizeHookOverlayText(hookOverlay);
 
   if (hookText) {
     const hookFilePath = path.join(DOWNLOAD_DIR, `hook_${requestId}.txt`);
     fs.writeFileSync(hookFilePath, splitCaptionRows(hookText.toUpperCase(), 18), 'utf8');
     cleanupPaths.push(hookFilePath);
-    filters.push(drawtextHookOverlayFilter(hookFilePath));
+    filters.push(drawtextHookOverlayFilter(hookFilePath, format));
   }
 
   const chunks = buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings);
@@ -708,6 +776,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
   console.log('Caption chunks:', chunks.length);
   console.log('Caption style:', normalizeCaptionStyle(captionStyle, captionPreset));
   console.log('Caption settings:', normalizeCaptionSettings(captionSettings));
+  console.log('Export format:', format);
   if (hookText) console.log('Hook overlay:', hookText);
   if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
@@ -719,7 +788,20 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
 app.post('/api/cut-clip', (req, res) => {
-  const { localFileId, startMs, endMs, clipTitle, captionLines, words, captionStyle, captionPreset, captionSettings, hookOverlay } = req.body;
+  const {
+    localFileId,
+    startMs,
+    endMs,
+    clipTitle,
+    captionLines,
+    words,
+    captionStyle,
+    captionPreset,
+    captionSettings,
+    hookOverlay,
+    exportPreset,
+    exportQuality
+  } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
   const trycut = () => {
@@ -738,7 +820,8 @@ app.post('/api/cut-clip', (req, res) => {
     const outputPath = path.join(DOWNLOAD_DIR, `clip_${requestId}.mp4`);
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
-    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay);
+    const exportFormat = normalizeExportFormat(exportPreset, exportQuality);
+    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat);
     const args = [
       '-y',
       '-ss', startSec,
@@ -748,12 +831,13 @@ app.post('/api/cut-clip', (req, res) => {
       '-map', '[v]',
       '-map', '0:a?',
       '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-crf', '30',
-      '-tune', 'fastdecode',
+      '-preset', 'veryfast',
+      '-crf', exportFormat.crf,
+      '-profile:v', 'main',
+      '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
-      '-b:a', '64k',
-      '-ac', '1',
+      '-b:a', exportFormat.audioBitrate,
+      '-ac', '2',
       '-movflags', '+faststart',
       '-threads', '1',
       outputPath
@@ -781,7 +865,8 @@ app.post('/api/cut-clip', (req, res) => {
       const stat = fs.statSync(outputPath);
       console.log('✅ Clip cut, size:', stat.size);
       res.setHeader('Content-Type', 'video/mp4');
-      res.setHeader('Content-Disposition', 'attachment; filename="clip.mp4"');
+      const safeName = String(clipTitle || 'clip').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'clip';
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}_${exportFormat.filenameTag}_${exportFormat.quality}.mp4"`);
       res.setHeader('Content-Length', stat.size);
       const stream = fs.createReadStream(outputPath);
       stream.pipe(res);
