@@ -847,19 +847,22 @@ app.post('/api/cut-clip', (req, res) => {
 
     console.log('Cutting clip:', clipTitle);
     console.log('Filter script:', scriptPath);
-    execFile(FFMPEG, args, { maxBuffer: 1024 * 1024 * 500, timeout: 300000 }, (err, stdout, stderr) => {
+    execFile(FFMPEG, args, { maxBuffer: 1024 * 1024 * 500, timeout: 900000 }, (err, stdout, stderr) => {
       const cleanupTempFiles = () => cleanupPaths.forEach(p => { try { fs.unlinkSync(p); } catch(e) {} });
       if (err || !fs.existsSync(outputPath)) {
         cleanupTempFiles();
+        const timeoutMessage = err && (err.killed || err.signal === 'SIGTERM' || /timed out/i.test(err.message || ''))
+          ? `FFmpeg timed out while rendering ${exportFormat.filenameTag} ${exportFormat.quality}. Try 720p, a shorter clip, or upgrade the Render instance for 1080p exports.`
+          : '';
         const lines = (stderr || '').split('\n').filter(l => l.trim());
         const errorLines = lines.filter(l =>
           l.includes('Error') || l.includes('error') ||
           l.includes('Invalid') || l.includes('No such') ||
           l.includes('failed') || l.includes('Cannot')
         );
-        const realError = errorLines.length > 0
+        const realError = timeoutMessage || (errorLines.length > 0
           ? errorLines.join(' | ').substring(0, 400)
-          : (stderr || '').split('\n').slice(-5).join(' | ').substring(0, 400);
+          : (err && err.message) || (stderr || '').split('\n').slice(-5).join(' | ').substring(0, 400));
         console.error('FFmpeg error:', realError);
         return res.status(500).json({ error: 'Cut failed: ' + realError });
       }
