@@ -753,6 +753,7 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
   const filters = [
     `scale=${format.width}:${format.height}:force_original_aspect_ratio=decrease`,
     `pad=${format.width}:${format.height}:(ow-iw)/2:(oh-ih)/2:black`,
+    'setsar=1',
     'setpts=PTS-STARTPTS'
   ];
   const cleanupPaths = [];
@@ -830,6 +831,7 @@ app.post('/api/cut-clip', (req, res) => {
       '-filter_complex_script', scriptPath,
       '-map', '[v]',
       '-map', '0:a?',
+      '-s', `${exportFormat.width}x${exportFormat.height}`,
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-crf', exportFormat.crf,
