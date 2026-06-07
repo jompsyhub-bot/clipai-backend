@@ -874,6 +874,210 @@ app.post('/api/cut-clip', (req, res) => {
 });
 
 // ─── GHOST EDITOR ─────────────────────────────────────────────────────────────
+function runProcess(file, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, {
+      maxBuffer: options.maxBuffer || 1024 * 1024 * 500,
+      timeout: options.timeout || 900000
+    }, (err, stdout, stderr) => {
+      if (err) {
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+function compactFfmpegError(stderr, fallback) {
+  const lines = String(stderr || '').split('\n').filter(line => line.trim());
+  const errorLines = lines.filter(line => /error|invalid|no such|failed|cannot|unable/i.test(line));
+  return (errorLines.length ? errorLines : lines.slice(-6)).join(' | ').slice(0, 500) || fallback || 'FFmpeg failed';
+}
+
+function findUploadPath(localFileId) {
+  const id = String(localFileId || '').trim();
+  if (!id) return '';
+  const files = fs.readdirSync(UPLOAD_DIR);
+  const match = files.find(file => file === id || file.startsWith(id));
+  return match ? path.join(UPLOAD_DIR, match) : '';
+}
+
+function safeCompilationName(value) {
+  return String(value || 'clipai_compilation')
+    .replace(/[^a-z0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+    .slice(0, 60) || 'clipai_compilation';
+}
+
+function normalizeCompilationSegments(plan, sources) {
+  const sourceList = Array.isArray(sources) ? sources : [];
+  const sourceByIndex = new Map(sourceList.map((source, index) => [
+    Number.isFinite(Number(source.index)) ? Number(source.index) : index,
+    source
+  ]));
+  const rawSegments = Array.isArray(plan?.segments) && plan.segments.length
+    ? plan.segments
+    : sourceList.map((source, index) => ({
+        source_index: Number.isFinite(Number(source.index)) ? Number(source.index) : index,
+        title: `Source ${index + 1}`,
+        start_ms: 0,
+        end_ms: Math.min(120000, Math.max(30000, Number(source.duration || 0) * 1000 || 90000)),
+        target_seconds: 90
+      }));
+
+  return rawSegments.slice(0, 30).map((segment, index) => {
+    const sourceIndex = Number.isFinite(Number(segment.source_index)) ? Number(segment.source_index) : index;
+    const source = sourceByIndex.get(sourceIndex) || sourceList[sourceIndex] || sourceList[index];
+    const localFileId = source?.localFileId || segment.localFileId || '';
+    let startMs = Math.max(0, Number(segment.start_ms ?? segment.startMs ?? 0) || 0);
+    let endMs = Math.max(0, Number(segment.end_ms ?? segment.endMs ?? 0) || 0);
+    const fallbackDurationMs = Math.max(10000, Math.min(360000, Number(segment.target_seconds || 90) * 1000));
+    if (!endMs || endMs <= startMs + 1000) endMs = startMs + fallbackDurationMs;
+    const sourceDurationMs = Number(source?.duration || 0) * 1000;
+    if (sourceDurationMs > 0) {
+      startMs = Math.min(startMs, Math.max(0, sourceDurationMs - 1000));
+      endMs = Math.min(endMs, sourceDurationMs);
+    }
+    const durationMs = Math.max(3000, endMs - startMs);
+    return {
+      index,
+      sourceIndex,
+      localFileId,
+      title: segment.title || `Segment ${index + 1}`,
+      startMs,
+      durationMs
+    };
+  }).filter(segment => segment.localFileId && segment.durationMs > 0);
+}
+
+function concatFileLine(filePath) {
+  return `file '${String(filePath).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`;
+}
+
+app.post('/api/build-compilation', async (req, res) => {
+  const { sources = [], plan = {}, title = '', quality = '720p' } = req.body || {};
+  if (!Array.isArray(sources) || sources.length < 2) {
+    return res.status(400).json({ error: 'At least two downloaded sources are required.' });
+  }
+  if (!plan || !Array.isArray(plan.segments) || !plan.segments.length) {
+    return res.status(400).json({ error: 'Create a compilation plan before building the final video.' });
+  }
+  if (!fs.existsSync(FFMPEG)) {
+    return res.status(503).json({ error: 'FFmpeg is still preparing. Please try again in a moment.' });
+  }
+
+  const requestId = `comp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const buildDir = path.join(DOWNLOAD_DIR, requestId);
+  fs.mkdirSync(buildDir, { recursive: true });
+  const tempFiles = [];
+  const width = quality === '1080p' ? 1920 : 1280;
+  const height = quality === '1080p' ? 1080 : 720;
+  const crf = quality === '1080p' ? '23' : '25';
+  const segments = normalizeCompilationSegments(plan, sources);
+
+  if (!segments.length) {
+    try { fs.rmSync(buildDir, { recursive: true, force: true }); } catch(e) {}
+    return res.status(400).json({ error: 'No valid renderable segments found in this compilation plan.' });
+  }
+
+  try {
+    console.log('Building compilation:', requestId, 'segments:', segments.length);
+    for (const segment of segments) {
+      const inputPath = findUploadPath(segment.localFileId);
+      if (!inputPath) throw new Error(`Source file missing for segment ${segment.index + 1}. Rebuild the compilation plan.`);
+
+      const outputPath = path.join(buildDir, `segment_${String(segment.index).padStart(3, '0')}.mp4`);
+      tempFiles.push(outputPath);
+      const startSec = (segment.startMs / 1000).toFixed(3);
+      const durationSec = (segment.durationMs / 1000).toFixed(3);
+      const filter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30`;
+      const args = [
+        '-y',
+        '-ss', startSec,
+        '-t', durationSec,
+        '-i', inputPath,
+        '-vf', filter,
+        '-map', '0:v:0',
+        '-map', '0:a?',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', crf,
+        '-profile:v', 'main',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-ar', '44100',
+        '-ac', '2',
+        '-movflags', '+faststart',
+        '-threads', '1',
+        outputPath
+      ];
+      await runProcess(FFMPEG, args, { timeout: 900000 });
+      if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1024) {
+        throw new Error(`Segment ${segment.index + 1} was not created.`);
+      }
+    }
+
+    const concatPath = path.join(buildDir, 'concat.txt');
+    fs.writeFileSync(concatPath, tempFiles.map(concatFileLine).join('\n'), 'utf8');
+    const outputPath = path.join(DOWNLOAD_DIR, `${requestId}.mp4`);
+    try {
+      await runProcess(FFMPEG, [
+        '-y',
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', concatPath,
+        '-c', 'copy',
+        '-movflags', '+faststart',
+        outputPath
+      ], { timeout: 900000 });
+    } catch (copyErr) {
+      console.log('Concat copy failed, retrying with re-encode:', compactFfmpegError(copyErr.stderr, copyErr.message));
+      await runProcess(FFMPEG, [
+        '-y',
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', concatPath,
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', crf,
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-ar', '44100',
+        '-ac', '2',
+        '-movflags', '+faststart',
+        '-threads', '1',
+        outputPath
+      ], { timeout: 1200000 });
+    }
+
+    if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1024) {
+      throw new Error('Final compilation file was not created.');
+    }
+
+    const stat = fs.statSync(outputPath);
+    const safeName = safeCompilationName(title || plan.title || 'clipai_compilation');
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}_${quality}.mp4"`);
+    res.setHeader('Content-Length', stat.size);
+    fs.createReadStream(outputPath).pipe(res).on('close', () => {
+      try { fs.rmSync(buildDir, { recursive: true, force: true }); } catch(e) {}
+      setTimeout(() => { try { fs.unlinkSync(outputPath); } catch(e) {} }, 5000);
+    });
+  } catch (err) {
+    console.error('Compilation build error:', err.message, compactFfmpegError(err.stderr, ''));
+    try { fs.rmSync(buildDir, { recursive: true, force: true }); } catch(e) {}
+    return res.status(500).json({
+      error: 'Compilation build failed: ' + (err.message || compactFfmpegError(err.stderr, 'Unknown FFmpeg error'))
+    });
+  }
+});
+
 const GHOST_CAPTION_PRESETS = new Set([
   'tiktok-bold',
   'yellow-pop',
