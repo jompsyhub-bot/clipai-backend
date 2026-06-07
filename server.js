@@ -284,94 +284,82 @@ app.get('/api/test-yt', (req, res) => {
 });
 
 // ─── DOWNLOAD FILE ────────────────────────────────────────────────────────────
-app.get('/api/download', async (req, res) => {
-  const { url, format, quality } = req.query;
-  if (!url) return res.status(400).send('No URL');
-
-  const ready = await waitForFile(YTDLP);
-  if (!ready) return res.status(503).json({ message: 'Server still starting, try again in 30 seconds.' });
-
-  const filename = `clipai_${Date.now()}`;
-  let outputPath, cmd, dlFilename, contentType;
-
-  if (format === 'mp3') {
-    const bitrate = quality ? quality.replace(' kbps', '') : '192';
-    outputPath = path.join(DOWNLOAD_DIR, filename + '.mp3');
-    dlFilename = 'audio.mp3'; contentType = 'audio/mpeg';
-    cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -x --audio-format mp3 --audio-quality ${bitrate}K -o "${outputPath}" "${url}"`;
-  } else {
-    const heights = { '480p': 480, '720p': 720, '1080p': 1080, '4K': 2160 };
-    const h = heights[quality] || 720;
-    outputPath = path.join(DOWNLOAD_DIR, filename + '.mp4');
-    dlFilename = 'video.mp4'; contentType = 'video/mp4';
-    cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[height<=${h}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${h}][ext=mp4]/best[height<=${h}]" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
-  }
-
-  exec(cmd, { maxBuffer: 1024 * 1024 * 100, timeout: 600000 }, (err, stdout, stderr) => {
-    if (err) return res.status(500).json({ message: 'Conversion failed', error: stderr });
-    if (!fs.existsSync(outputPath)) return res.status(500).json({ message: 'File not created' });
-    const stat = fs.statSync(outputPath);
-    res.setHeader('Content-Disposition', `attachment; filename="${dlFilename}"`);
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', stat.size);
-    const stream = fs.createReadStream(outputPath);
-    stream.pipe(res);
-    stream.on('close', () => { setTimeout(() => { try { fs.unlinkSync(outputPath); } catch(e) {} }, 5000); });
-  });
-});
-
-// ─── YOUTUBE UPLOAD (for clipai-ten.vercel.app) ───────────────────────────────
 app.post('/api/youtube-upload', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'No URL provided' });
   console.log('📥 /api/youtube-upload:', url);
 
-  const ready = await waitForFile(YTDLP);
-  if (!ready) return res.status(503).json({ error: 'yt-dlp not ready, please try again.' });
-
   const localFileId = `yt_${Date.now()}`;
   const outputPath = path.join(UPLOAD_DIR, localFileId + '.mp4');
-  const args = ytArgList([
-    '--ffmpeg-location', FFMPEG,
-    '--no-playlist',
-    '--force-overwrites',
-    '-f', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[ext=mp4]/best',
-    '--merge-output-format', 'mp4',
-    '-o', outputPath,
-    url
-  ]);
-  console.log('Running yt-dlp:', args.join(' '));
 
-  execFile(YTDLP, args, { maxBuffer: 1024 * 1024 * 200, timeout: 900000 }, async (err, stdout, stderr) => {
-    if (err) {
-      console.error('YouTube download failed:', compactProcessError(stderr, err.message));
-      return res.status(500).json({
-        error: compactProcessError(stderr, 'YouTube download failed. Try another public video or configure YT_COOKIES on the backend.')
-      });
-    }
-    if (!fs.existsSync(outputPath)) return res.status(500).json({ error: 'Downloaded file not found' });
-    console.log('✅ YouTube downloaded, size:', fs.statSync(outputPath).size);
+  // Check if it's already a direct download URL (from RapidAPI)
+  const isDirectUrl = !url.includes('youtube.com') && !url.includes('youtu.be');
 
-    const baseUrl = publicBaseUrl(req);
-    const previewUrl = `${baseUrl}/api/serve-upload/${localFileId}`;
-    const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
-    if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: previewUrl, previewUrl, videoUrl: previewUrl });
-
+  if (isDirectUrl) {
+    // Direct MP4 URL — just download it with curl/https
+    console.log('Direct URL detected, downloading directly...');
     try {
-      const fileData = fs.readFileSync(outputPath);
-      const uploadRes = await fetchWithBuffer('https://api.assemblyai.com/v2/upload', {
-        method: 'POST',
-        headers: { 'authorization': ASSEMBLYAI_KEY, 'content-type': 'application/octet-stream' },
-        body: fileData
+      await new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(outputPath);
+        const protocol = url.startsWith('https') ? require('https') : require('http');
+        protocol.get(url, (response) => {
+          if (response.statusCode === 302 || response.statusCode === 301) {
+            file.close();
+            const redirectUrl = response.headers.location;
+            const redirectProtocol = redirectUrl.startsWith('https') ? require('https') : require('http');
+            redirectProtocol.get(redirectUrl, (res2) => {
+              res2.pipe(file);
+              file.on('finish', () => { file.close(); resolve(); });
+            }).on('error', reject);
+          } else {
+            response.pipe(file);
+            file.on('finish', () => { file.close(); resolve(); });
+          }
+        }).on('error', reject);
       });
-      const uploadData = JSON.parse(uploadRes);
-      console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
-      res.json({ localFileId, uploadUrl: uploadData.upload_url, previewUrl, videoUrl: previewUrl });
-    } catch (uploadErr) {
-      console.error('AssemblyAI upload error:', uploadErr.message);
-      res.json({ localFileId, uploadUrl: previewUrl, previewUrl, videoUrl: previewUrl });
+    } catch (err) {
+      return res.status(500).json({ error: 'Direct download failed: ' + err.message });
     }
-  });
+  } else {
+    // YouTube URL — use yt-dlp
+    const ready = await waitForFile(YTDLP);
+    if (!ready) return res.status(503).json({ error: 'yt-dlp not ready, please try again.' });
+    const cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+    console.log('Running:', cmd);
+    await new Promise((resolve) => {
+      exec(cmd, { maxBuffer: 1024 * 1024 * 200, timeout: 600000 }, (err, stdout, stderr) => {
+        if (err) {
+          res.status(500).json({ error: 'YouTube download failed: ' + stderr.substring(0, 200) });
+          resolve(false);
+        } else resolve(true);
+      });
+    });
+    if (!fs.existsSync(outputPath)) return;
+  }
+
+  if (!fs.existsSync(outputPath)) {
+    return res.status(500).json({ error: 'Downloaded file not found' });
+  }
+
+  console.log('✅ Video ready, size:', fs.statSync(outputPath).size);
+
+  const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
+  if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+
+  try {
+    const fileData = fs.readFileSync(outputPath);
+    const uploadRes = await fetchWithBuffer('https://api.assemblyai.com/v2/upload', {
+      method: 'POST',
+      headers: { 'authorization': ASSEMBLYAI_KEY, 'content-type': 'application/octet-stream' },
+      body: fileData
+    });
+    const uploadData = JSON.parse(uploadRes);
+    console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
+    res.json({ localFileId, uploadUrl: uploadData.upload_url });
+  } catch (uploadErr) {
+    console.error('AssemblyAI upload error:', uploadErr.message);
+    res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+  }
 });
 
 // ─── SERVE UPLOADED FILE ──────────────────────────────────────────────────────
