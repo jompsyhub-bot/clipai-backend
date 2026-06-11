@@ -930,12 +930,16 @@ function normalizeCompilationSegments(plan, sources) {
       }));
 
   return rawSegments.slice(0, 30).map((segment, index) => {
-    const sourceIndex = Number.isFinite(Number(segment.source_index)) ? Number(segment.source_index) : index;
+    const sourceIndex = Number.isFinite(Number(segment.source_index ?? segment.sourceIndex)) ? Number(segment.source_index ?? segment.sourceIndex) : index;
     const source = sourceByIndex.get(sourceIndex) || sourceList[sourceIndex] || sourceList[index];
     const localFileId = source?.localFileId || segment.localFileId || '';
-    let startMs = Math.max(0, Number(segment.start_ms ?? segment.startMs ?? 0) || 0);
-    let endMs = Math.max(0, Number(segment.end_ms ?? segment.endMs ?? 0) || 0);
-    const fallbackDurationMs = Math.max(10000, Math.min(360000, Number(segment.target_seconds || 90) * 1000));
+    let startMs = segment.start_ms ?? segment.startMs;
+    let endMs = segment.end_ms ?? segment.endMs;
+    if (startMs === undefined && segment.start_seconds !== undefined) startMs = Number(segment.start_seconds) * 1000;
+    if (endMs === undefined && segment.end_seconds !== undefined) endMs = Number(segment.end_seconds) * 1000;
+    startMs = Math.max(0, Number(startMs ?? 0) || 0);
+    endMs = Math.max(0, Number(endMs ?? 0) || 0);
+    const fallbackDurationMs = Math.max(10000, Math.min(360000, Number(segment.target_seconds ?? segment.duration_seconds ?? segment.duration_s ?? 90) * 1000));
     if (!endMs || endMs <= startMs + 1000) endMs = startMs + fallbackDurationMs;
     const sourceDurationMs = Number(source?.duration || 0) * 1000;
     if (sourceDurationMs > 0) {
