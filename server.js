@@ -739,23 +739,26 @@ function normalizeHookOverlayText(text) {
 function drawtextWatermarkFilter(textFilePath, exportFormat) {
   const format = exportFormat || normalizeExportFormat();
   const scale = format.fontScale || 1;
+  const margin = Math.round(24 * scale);
+  const fontSize = Math.max(14, Math.round(17 * scale));
+  const shadowOffset = Math.max(1, Math.round(1 * scale));
+  const xExpr = `if(lt(mod(t\\,8)\\,4)\\,${margin}\\,w-text_w-${margin})`;
+  const yExpr = `if(lt(mod(t\\,8)\\,4)\\,${margin}\\,h-text_h-${margin})`;
   return 'drawtext=textfile=' + escapeFilterPath(textFilePath) +
     getDrawtextFontOption() +
-    ':fontcolor=white@0.82' +
-    ':fontsize=' + Math.round(22 * scale) +
-    ':box=1' +
-    ':boxcolor=black@0.38' +
-    ':boxborderw=' + Math.round(10 * scale) +
-    ':x=w-text_w-' + Math.round(28 * scale) +
-    ':y=' + Math.round(28 * scale) +
-    ':shadowcolor=black@0.7' +
-    ':shadowx=' + Math.round(2 * scale) +
-    ':shadowy=' + Math.round(2 * scale);
+    ':fontcolor=white@0.72' +
+    ':fontsize=' + fontSize +
+    ':box=0' +
+    ':x=' + xExpr +
+    ':y=' + yExpr +
+    ':shadowcolor=black@0.55' +
+    ':shadowx=' + shadowOffset +
+    ':shadowy=' + shadowOffset;
 }
 
 function buildWatermarkFilterPart(requestId, exportFormat, cleanupPaths) {
   const watermarkFilePath = path.join(DOWNLOAD_DIR, `watermark_${requestId}.txt`);
-  fs.writeFileSync(watermarkFilePath, 'ClipAI', 'utf8');
+  fs.writeFileSync(watermarkFilePath, '@ClipAI', 'utf8');
   cleanupPaths.push(watermarkFilePath);
   return drawtextWatermarkFilter(watermarkFilePath, exportFormat);
 }
@@ -1036,7 +1039,7 @@ app.post('/api/build-compilation', async (req, res) => {
       ];
       if (!removeWatermark) {
         const watermarkFilePath = path.join(buildDir, 'watermark.txt');
-        if (!fs.existsSync(watermarkFilePath)) fs.writeFileSync(watermarkFilePath, 'ClipAI', 'utf8');
+        if (!fs.existsSync(watermarkFilePath)) fs.writeFileSync(watermarkFilePath, '@ClipAI', 'utf8');
         filterParts.push(drawtextWatermarkFilter(watermarkFilePath, compilationFormat));
       }
       const filter = filterParts.join(',');
