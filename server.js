@@ -739,19 +739,19 @@ function normalizeHookOverlayText(text) {
 function drawtextWatermarkFilter(textFilePath, exportFormat) {
   const format = exportFormat || normalizeExportFormat();
   const scale = format.fontScale || 1;
-  const margin = Math.round(24 * scale);
-  const fontSize = Math.max(14, Math.round(17 * scale));
-  const shadowOffset = Math.max(1, Math.round(1 * scale));
+  const margin = Math.round(30 * scale);
+  const fontSize = Math.max(22, Math.round(26 * scale));
+  const shadowOffset = Math.max(2, Math.round(2 * scale));
   const xExpr = `if(lt(mod(t\\,8)\\,4)\\,${margin}\\,w-text_w-${margin})`;
   const yExpr = `if(lt(mod(t\\,8)\\,4)\\,${margin}\\,h-text_h-${margin})`;
   return 'drawtext=textfile=' + escapeFilterPath(textFilePath) +
     getDrawtextFontOption() +
-    ':fontcolor=white@0.72' +
+    ':fontcolor=white@0.92' +
     ':fontsize=' + fontSize +
     ':box=0' +
     ':x=' + xExpr +
     ':y=' + yExpr +
-    ':shadowcolor=black@0.55' +
+    ':shadowcolor=black@0.9' +
     ':shadowx=' + shadowOffset +
     ':shadowy=' + shadowOffset;
 }
