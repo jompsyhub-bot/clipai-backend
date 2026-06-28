@@ -763,7 +763,7 @@ function buildWatermarkFilterPart(requestId, exportFormat, cleanupPaths) {
   return drawtextWatermarkFilter(watermarkFilePath, exportFormat);
 }
 
-function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, removeWatermark) {
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, removeWatermark, burnCaptions = true) {
   const format = exportFormat || normalizeExportFormat();
   const filters = [
     `scale=${format.width}:${format.height}:force_original_aspect_ratio=decrease`,
@@ -782,17 +782,20 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
     filters.push(drawtextHookOverlayFilter(hookFilePath, format));
   }
 
-  const chunks = buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings);
-  chunks.forEach((chunk, index) => {
-    const textFilePath = path.join(DOWNLOAD_DIR, `caption_${requestId}_${index}.txt`);
-    fs.writeFileSync(textFilePath, style.uppercase ? chunk.text.toUpperCase() : chunk.text, 'utf8');
-    cleanupPaths.push(textFilePath);
-    filters.push(drawtextFilterForChunk(chunk, textFilePath, style));
-  });
+  const chunks = burnCaptions ? buildCaptionChunks(words, startMs, endMs, captionLines, captionSettings) : [];
+  if (burnCaptions) {
+    chunks.forEach((chunk, index) => {
+      const textFilePath = path.join(DOWNLOAD_DIR, `caption_${requestId}_${index}.txt`);
+      fs.writeFileSync(textFilePath, style.uppercase ? chunk.text.toUpperCase() : chunk.text, 'utf8');
+      cleanupPaths.push(textFilePath);
+      filters.push(drawtextFilterForChunk(chunk, textFilePath, style));
+    });
+  }
   if (!removeWatermark) {
     filters.push(buildWatermarkFilterPart(requestId, format, cleanupPaths));
   }
   console.log('Caption chunks:', chunks.length);
+  console.log('Captions:', burnCaptions ? 'enabled' : 'disabled');
   console.log('Caption style:', normalizeCaptionStyle(captionStyle, captionPreset));
   console.log('Caption settings:', normalizeCaptionSettings(captionSettings));
   console.log('Export format:', format);
@@ -821,6 +824,7 @@ app.post('/api/cut-clip', (req, res) => {
     hookOverlay,
     exportPreset,
     exportQuality,
+    burnCaptions,
     removeWatermark
   } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
@@ -842,7 +846,7 @@ app.post('/api/cut-clip', (req, res) => {
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
     const exportFormat = normalizeExportFormat(exportPreset, exportQuality);
-    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, Boolean(removeWatermark));
+    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, Boolean(removeWatermark), burnCaptions !== false);
     const args = [
       '-y',
       '-ss', startSec,
