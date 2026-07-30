@@ -203,7 +203,7 @@ function getMusicTrack(id) {
 }
 
 function musicFilePathForTrack(track) {
-  return path.join(MUSIC_DIR, `library_${track.id}.mp3`);
+  return path.join(MUSIC_DIR, `library_v2_${track.id}.mp3`);
 }
 
 function ensureLibraryMusicTrack(track) {
@@ -216,7 +216,7 @@ function ensureLibraryMusicTrack(track) {
     const freq = Number(track.freq) || 440;
     const second = Math.round(freq * 1.5);
     const third = Math.round(freq * 2);
-    const filter = `sine=frequency=${freq}:duration=180:sample_rate=44100[a0];sine=frequency=${second}:duration=180:sample_rate=44100[a1];sine=frequency=${third}:duration=180:sample_rate=44100[a2];[a0]volume=0.10[a0v];[a1]volume=0.045[a1v];[a2]volume=0.025[a2v];[a0v][a1v][a2v]amix=inputs=3:duration=longest,afade=t=in:st=0:d=2,afade=t=out:st=176:d=4[a]`;
+    const filter = `sine=frequency=${freq}:duration=180:sample_rate=44100[a0];sine=frequency=${second}:duration=180:sample_rate=44100[a1];sine=frequency=${third}:duration=180:sample_rate=44100[a2];[a0]volume=0.55[a0v];[a1]volume=0.22[a1v];[a2]volume=0.14[a2v];[a0v][a1v][a2v]amix=inputs=3:duration=longest,volume=0.85,afade=t=in:st=0:d=2,afade=t=out:st=176:d=4[a]`;
     execFile(FFMPEG, [
       '-y',
       '-f', 'lavfi',
