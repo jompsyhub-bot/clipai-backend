@@ -203,7 +203,219 @@ function getMusicTrack(id) {
 }
 
 function musicFilePathForTrack(track) {
-  return path.join(MUSIC_DIR, `library_v2_${track.id}.mp3`);
+  return path.join(MUSIC_DIR, `library_v3_${track.id}.wav`);
+}
+
+function clampSample(value) {
+  return Math.max(-1, Math.min(1, value));
+}
+
+function noteFrequency(root, semitone) {
+  return root * Math.pow(2, semitone / 12);
+}
+
+function musicPresetForTrack(track) {
+  const presets = {
+    'viral-pop': {
+      root: 261.63,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 0, 7, 9, 4, 4, 7, 2],
+      melody: [12, 9, 7, 9, 14, 12, 9, 7],
+      chord: [0, 4, 7],
+      kick: [0, 2],
+      snare: [1, 3],
+      hatEvery: 0.5,
+      swing: 0.03,
+      drive: 0.95
+    },
+    'clean-podcast': {
+      root: 196,
+      scale: [0, 3, 5, 7, 10, 12],
+      bass: [0, 0, 5, 5, 7, 7, 3, 3],
+      melody: [7, 10, 12, 10, 7, 5, 3, 5],
+      chord: [0, 3, 7],
+      kick: [0],
+      snare: [2],
+      hatEvery: 1,
+      swing: 0,
+      drive: 0.45
+    },
+    'cinematic-rise': {
+      root: 174.61,
+      scale: [0, 2, 3, 7, 8, 12],
+      bass: [0, 0, 3, 3, 8, 8, 7, 7],
+      melody: [12, 15, 19, 15, 20, 19, 15, 12],
+      chord: [0, 3, 7],
+      kick: [0, 2.5],
+      snare: [3],
+      hatEvery: 2,
+      swing: 0,
+      drive: 0.7
+    },
+    'luxury-tech': {
+      root: 220,
+      scale: [0, 2, 5, 7, 11, 12],
+      bass: [0, 7, 0, 11, 5, 7, 2, 0],
+      melody: [12, 14, 19, 14, 23, 19, 14, 12],
+      chord: [0, 5, 11],
+      kick: [0, 1.5, 3],
+      snare: [2],
+      hatEvery: 0.5,
+      swing: 0.02,
+      drive: 0.65
+    },
+    'funny-bounce': {
+      root: 293.66,
+      scale: [0, 2, 4, 5, 7, 9, 12],
+      bass: [0, 7, 4, 7, 0, 9, 4, 7],
+      melody: [12, 16, 14, 12, 19, 16, 14, 12],
+      chord: [0, 4, 7],
+      kick: [0, 1, 2, 3],
+      snare: [1.5, 3.5],
+      hatEvery: 0.5,
+      swing: 0.06,
+      drive: 0.8
+    },
+    'motivation-drive': {
+      root: 246.94,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 0, 7, 7, 9, 9, 4, 4],
+      melody: [7, 9, 12, 14, 16, 14, 12, 9],
+      chord: [0, 4, 7],
+      kick: [0, 2],
+      snare: [1, 3],
+      hatEvery: 0.5,
+      swing: 0.01,
+      drive: 1
+    },
+    'soft-story': {
+      root: 220,
+      scale: [0, 2, 3, 7, 10, 12],
+      bass: [0, 0, 3, 3, 7, 7, 10, 10],
+      melody: [12, 10, 7, 10, 15, 12, 10, 7],
+      chord: [0, 3, 7],
+      kick: [0],
+      snare: [],
+      hatEvery: 4,
+      swing: 0,
+      drive: 0.35
+    },
+    'fitness-energy': {
+      root: 261.63,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 0, 7, 7, 9, 9, 7, 4],
+      melody: [12, 14, 16, 19, 21, 19, 16, 14],
+      chord: [0, 4, 7],
+      kick: [0, 1, 2, 3],
+      snare: [1, 3],
+      hatEvery: 0.25,
+      swing: 0,
+      drive: 1.05
+    }
+  };
+  return presets[track.id] || presets['viral-pop'];
+}
+
+function writeWavFile(filePath, samples, sampleRate) {
+  const dataSize = samples.length * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  for (let i = 0; i < samples.length; i++) {
+    buffer.writeInt16LE(Math.round(clampSample(samples[i]) * 32767), 44 + i * 2);
+  }
+  fs.writeFileSync(filePath, buffer);
+}
+
+function synthLibraryTrack(track, outputPath) {
+  const preset = musicPresetForTrack(track);
+  const sampleRate = 22050;
+  const duration = 32;
+  const samples = new Float32Array(sampleRate * duration);
+  const beatDuration = 60 / (track.bpm || 100);
+  let noiseSeed = 123456 + String(track.id).split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const noise = () => {
+    noiseSeed = (noiseSeed * 1664525 + 1013904223) >>> 0;
+    return (noiseSeed / 4294967295) * 2 - 1;
+  };
+
+  for (let i = 0; i < samples.length; i++) {
+    const t = i / sampleRate;
+    const beat = t / beatDuration;
+    const beatInBar = ((beat % 4) + 4) % 4;
+    const eighth = Math.floor(beat * 2) % preset.bass.length;
+    const sixteenth = Math.floor(beat * 4) % preset.melody.length;
+    const bassSemi = preset.bass[eighth] || 0;
+    const melodySemi = preset.melody[sixteenth] || 12;
+    const bassFreq = noteFrequency(preset.root / 2, bassSemi);
+    const melodyFreq = noteFrequency(preset.root, melodySemi);
+    const chordStep = Math.floor(beat / 4) % 4;
+    const chordShift = [0, 5, 9, 7][chordStep] || 0;
+    const beatFrac = beat - Math.floor(beat);
+    const eighthFrac = beat * 2 - Math.floor(beat * 2);
+    const sixteenthFrac = beat * 4 - Math.floor(beat * 4);
+
+    let sample = 0;
+    const bassEnv = Math.exp(-beatFrac * 3.4);
+    sample += Math.sin(2 * Math.PI * bassFreq * t) * 0.28 * bassEnv;
+    sample += Math.sin(2 * Math.PI * bassFreq * 2 * t) * 0.08 * bassEnv;
+
+    const chordEnv = 0.18 + 0.16 * Math.sin(2 * Math.PI * beat / 8);
+    for (const semi of preset.chord) {
+      const freq = noteFrequency(preset.root, semi + chordShift);
+      sample += Math.sin(2 * Math.PI * freq * t) * 0.055 * chordEnv;
+      sample += Math.sin(2 * Math.PI * freq * 2.01 * t) * 0.018 * chordEnv;
+    }
+
+    if (sixteenthFrac < 0.72) {
+      const leadEnv = Math.exp(-sixteenthFrac * 4.2);
+      const wobble = Math.sin(2 * Math.PI * 5.5 * t) * 0.003;
+      sample += Math.sin(2 * Math.PI * melodyFreq * (t + wobble)) * 0.16 * leadEnv * preset.drive;
+      sample += Math.sin(2 * Math.PI * melodyFreq * 2 * t) * 0.035 * leadEnv;
+    }
+
+    for (const kickBeat of preset.kick) {
+      const dist = beatInBar - kickBeat;
+      if (dist >= 0 && dist < 0.18) {
+        const env = Math.exp(-dist * 24);
+        const sweep = 50 + 95 * env;
+        sample += Math.sin(2 * Math.PI * sweep * t) * 0.75 * env;
+      }
+    }
+
+    for (const snareBeat of preset.snare) {
+      const dist = beatInBar - snareBeat;
+      if (dist >= 0 && dist < 0.12) {
+        const env = Math.exp(-dist * 28);
+        sample += noise() * 0.42 * env;
+        sample += Math.sin(2 * Math.PI * 190 * t) * 0.14 * env;
+      }
+    }
+
+    const hatInterval = preset.hatEvery || 1;
+    const hatPhase = (beat / hatInterval) - Math.floor(beat / hatInterval);
+    if (hatPhase < 0.12) {
+      const env = Math.exp(-hatPhase * 38);
+      sample += noise() * 0.11 * env;
+    }
+
+    const fadeIn = Math.min(1, t / 1.5);
+    const fadeOut = Math.min(1, (duration - t) / 1.5);
+    samples[i] = clampSample(sample * 0.72 * fadeIn * fadeOut);
+  }
+
+  writeWavFile(outputPath, samples, sampleRate);
 }
 
 function ensureLibraryMusicTrack(track) {
@@ -211,27 +423,12 @@ function ensureLibraryMusicTrack(track) {
     if (!track) return reject(new Error('Music track not found'));
     const outputPath = musicFilePathForTrack(track);
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return resolve(outputPath);
-    if (!fs.existsSync(FFMPEG)) return reject(new Error('Music engine is still preparing'));
-
-    const freq = Number(track.freq) || 440;
-    const second = Math.round(freq * 1.5);
-    const third = Math.round(freq * 2);
-    const filter = `sine=frequency=${freq}:duration=180:sample_rate=44100[a0];sine=frequency=${second}:duration=180:sample_rate=44100[a1];sine=frequency=${third}:duration=180:sample_rate=44100[a2];[a0]volume=0.55[a0v];[a1]volume=0.22[a1v];[a2]volume=0.14[a2v];[a0v][a1v][a2v]amix=inputs=3:duration=longest,volume=0.85,afade=t=in:st=0:d=2,afade=t=out:st=176:d=4[a]`;
-    execFile(FFMPEG, [
-      '-y',
-      '-f', 'lavfi',
-      '-i', 'anullsrc=r=44100:cl=stereo',
-      '-filter_complex', filter,
-      '-map', '[a]',
-      '-c:a', 'libmp3lame',
-      '-b:a', '128k',
-      outputPath
-    ], { maxBuffer: 1024 * 1024 * 20, timeout: 120000 }, (err, stdout, stderr) => {
-      if (err || !fs.existsSync(outputPath)) {
-        return reject(new Error(compactFfmpegError(stderr, err?.message || 'Music track could not be prepared')));
-      }
+    try {
+      synthLibraryTrack(track, outputPath);
       resolve(outputPath);
-    });
+    } catch (err) {
+      reject(new Error(err.message || 'Music track could not be prepared'));
+    }
   });
 }
 
@@ -290,7 +487,7 @@ app.get('/api/music-library/:id', async (req, res) => {
     const track = getMusicTrack(req.params.id);
     if (!track) return res.status(404).json({ error: 'Track not found' });
     const musicPath = await ensureLibraryMusicTrack(track);
-    streamAudioFile(req, res, musicPath, 'audio/mpeg');
+    streamAudioFile(req, res, musicPath, 'audio/wav');
   } catch (err) {
     res.status(503).json({ error: err.message || 'Music preview unavailable' });
   }
