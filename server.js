@@ -151,6 +151,38 @@ function streamVideoFile(req, res, filePath, contentType = 'video/mp4') {
   stream.pipe(res);
 }
 
+function streamAudioFile(req, res, filePath, contentType = 'audio/mpeg') {
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Audio file not found' });
+  const stat = fs.statSync(filePath);
+  const range = req.headers.range;
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'HEAD') {
+    res.setHeader('Content-Length', stat.size);
+    return res.status(200).end();
+  }
+
+  if (range) {
+    const [startRaw, endRaw] = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(startRaw, 10);
+    const end = Math.min(endRaw ? parseInt(endRaw, 10) : stat.size - 1, stat.size - 1);
+    if (Number.isNaN(start) || Number.isNaN(end) || start >= stat.size || end >= stat.size) {
+      res.setHeader('Content-Range', `bytes */${stat.size}`);
+      return res.status(416).end();
+    }
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+    res.setHeader('Content-Length', end - start + 1);
+    return fs.createReadStream(filePath, { start, end }).pipe(res);
+  }
+
+  res.status(200);
+  res.setHeader('Content-Length', stat.size);
+  fs.createReadStream(filePath).pipe(res);
+}
+
 function localPreviewUrl(req, localFileId) {
   return `${publicBaseUrl(req)}/api/serve-upload-file/${encodeURIComponent(localFileId)}`;
 }
@@ -258,7 +290,7 @@ app.get('/api/music-library/:id', async (req, res) => {
     const track = getMusicTrack(req.params.id);
     if (!track) return res.status(404).json({ error: 'Track not found' });
     const musicPath = await ensureLibraryMusicTrack(track);
-    streamVideoFile(req, res, musicPath, 'audio/mp4');
+    streamAudioFile(req, res, musicPath, 'audio/mp4');
   } catch (err) {
     res.status(503).json({ error: err.message || 'Music preview unavailable' });
   }
@@ -575,8 +607,14 @@ app.get('/api/serve-music/:id', (req, res) => {
   const filePath = findMusicUploadPath(req.params.id);
   if (!filePath) return res.status(404).json({ error: 'Music file not found' });
   const ext = path.extname(filePath).toLowerCase();
-  const type = ext === '.wav' ? 'audio/wav' : ext === '.ogg' || ext === '.opus' ? 'audio/ogg' : 'audio/mpeg';
-  streamVideoFile(req, res, filePath, type);
+  const type = ext === '.wav'
+    ? 'audio/wav'
+    : ext === '.m4a' || ext === '.aac'
+      ? 'audio/mp4'
+      : ext === '.ogg' || ext === '.opus'
+        ? 'audio/ogg'
+        : 'audio/mpeg';
+  streamAudioFile(req, res, filePath, type);
 });
 
 app.get('/api/serve-upload-raw/:filename', (req, res) => {
