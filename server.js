@@ -36,9 +36,11 @@ const FFMPEG = path.join(__dirname, 'ffmpeg');
 const COOKIES_FILE = '/tmp/yt-cookies.txt';
 const DOWNLOAD_DIR = '/tmp/clipai';
 const UPLOAD_DIR = '/tmp/clipai-uploads';
+const MUSIC_DIR = '/tmp/clipai-music';
 
 if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(MUSIC_DIR)) fs.mkdirSync(MUSIC_DIR, { recursive: true });
 
 // ─── YouTube bypass args ──────────────────────────────────────────────────────
 const BYPASS = `--extractor-args "youtube:player_client=android_embedded,ios,android" --no-warnings --format-sort "ext:mp4:m4a"`;
@@ -152,6 +154,115 @@ function streamVideoFile(req, res, filePath, contentType = 'video/mp4') {
 function localPreviewUrl(req, localFileId) {
   return `${publicBaseUrl(req)}/api/serve-upload-file/${encodeURIComponent(localFileId)}`;
 }
+
+const MUSIC_LIBRARY = [
+  { id: 'viral-pop', title: 'Viral Pop Lift', mood: 'Upbeat', bpm: 118, freq: 440, color: '#7c6af7' },
+  { id: 'clean-podcast', title: 'Clean Podcast Bed', mood: 'Podcast', bpm: 88, freq: 220, color: '#3ecf8e' },
+  { id: 'cinematic-rise', title: 'Cinematic Rise', mood: 'Cinematic', bpm: 72, freq: 330, color: '#f0a832' },
+  { id: 'luxury-tech', title: 'Luxury Tech Pulse', mood: 'Luxury', bpm: 96, freq: 277, color: '#00c8ff' },
+  { id: 'funny-bounce', title: 'Funny Bounce', mood: 'Comedy', bpm: 124, freq: 523, color: '#ffe600' },
+  { id: 'motivation-drive', title: 'Motivation Drive', mood: 'Motivation', bpm: 104, freq: 392, color: '#ff5c8a' },
+  { id: 'soft-story', title: 'Soft Storytelling', mood: 'Emotional', bpm: 68, freq: 262, color: '#a394ff' },
+  { id: 'fitness-energy', title: 'Fitness Energy', mood: 'Fitness', bpm: 132, freq: 494, color: '#00ff88' }
+];
+
+function getMusicTrack(id) {
+  return MUSIC_LIBRARY.find(track => track.id === String(id || '').trim());
+}
+
+function musicFilePathForTrack(track) {
+  return path.join(MUSIC_DIR, `library_${track.id}.m4a`);
+}
+
+function ensureLibraryMusicTrack(track) {
+  return new Promise((resolve, reject) => {
+    if (!track) return reject(new Error('Music track not found'));
+    const outputPath = musicFilePathForTrack(track);
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) return resolve(outputPath);
+    if (!fs.existsSync(FFMPEG)) return reject(new Error('Music engine is still preparing'));
+
+    const freq = Number(track.freq) || 440;
+    const second = Math.round(freq * 1.5);
+    const third = Math.round(freq * 2);
+    const filter = `sine=frequency=${freq}:duration=180:sample_rate=44100[a0];sine=frequency=${second}:duration=180:sample_rate=44100[a1];sine=frequency=${third}:duration=180:sample_rate=44100[a2];[a0]volume=0.10[a0v];[a1]volume=0.045[a1v];[a2]volume=0.025[a2v];[a0v][a1v][a2v]amix=inputs=3:duration=longest,afade=t=in:st=0:d=2,afade=t=out:st=176:d=4[a]`;
+    execFile(FFMPEG, [
+      '-y',
+      '-f', 'lavfi',
+      '-i', 'anullsrc=r=44100:cl=stereo',
+      '-filter_complex', filter,
+      '-map', '[a]',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      outputPath
+    ], { maxBuffer: 1024 * 1024 * 20, timeout: 120000 }, (err, stdout, stderr) => {
+      if (err || !fs.existsSync(outputPath)) {
+        return reject(new Error(compactFfmpegError(stderr, err?.message || 'Music track could not be prepared')));
+      }
+      resolve(outputPath);
+    });
+  });
+}
+
+function findMusicUploadPath(musicFileId) {
+  const id = String(musicFileId || '').trim();
+  if (!/^music_\d+/i.test(id)) return '';
+  const match = fs.readdirSync(MUSIC_DIR).find(file => file.startsWith(id));
+  return match ? path.join(MUSIC_DIR, match) : '';
+}
+
+function normalizeMusicSettings(body = {}) {
+  const enabled = body.musicEnabled !== false && Boolean(body.musicFileId || body.musicTrackId);
+  return {
+    enabled,
+    musicFileId: body.musicFileId || '',
+    musicTrackId: body.musicTrackId || '',
+    musicVolume: Math.max(0, Math.min(1, Number(body.musicVolume ?? 0.18))),
+    voiceVolume: Math.max(0, Math.min(2, Number(body.voiceVolume ?? 1))),
+    musicStart: Math.max(0, Number(body.musicStart ?? 0)),
+    fadeIn: Math.max(0, Math.min(8, Number(body.musicFadeIn ?? 1))),
+    fadeOut: Math.max(0, Math.min(8, Number(body.musicFadeOut ?? 1.5))),
+    autoDuck: body.musicAutoDuck !== false
+  };
+}
+
+async function resolveMusicPath(body = {}) {
+  const settings = normalizeMusicSettings(body);
+  if (!settings.enabled) return { settings, musicPath: '' };
+  if (settings.musicFileId) {
+    const uploadPath = findMusicUploadPath(settings.musicFileId);
+    if (!uploadPath) throw new Error('Music file not found. Please upload the audio again.');
+    return { settings, musicPath: uploadPath };
+  }
+  const track = getMusicTrack(settings.musicTrackId);
+  const musicPath = await ensureLibraryMusicTrack(track);
+  return { settings, musicPath };
+}
+
+app.get('/api/music-library', (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const tracks = MUSIC_LIBRARY
+    .filter(track => !q || `${track.title} ${track.mood}`.toLowerCase().includes(q))
+    .map(track => ({
+      id: track.id,
+      title: track.title,
+      mood: track.mood,
+      bpm: track.bpm,
+      color: track.color,
+      previewUrl: `${publicBaseUrl(req)}/api/music-library/${encodeURIComponent(track.id)}`
+    }));
+  res.json({ tracks });
+});
+
+app.get('/api/music-library/:id', async (req, res) => {
+  try {
+    const track = getMusicTrack(req.params.id);
+    if (!track) return res.status(404).json({ error: 'Track not found' });
+    const musicPath = await ensureLibraryMusicTrack(track);
+    streamVideoFile(req, res, musicPath, 'audio/mp4');
+  } catch (err) {
+    res.status(503).json({ error: err.message || 'Music preview unavailable' });
+  }
+});
 
 // ─── BINARY DOWNLOADER ───────────────────────────────────────────────────────
 function downloadFile(url, dest, callback) {
@@ -433,6 +544,39 @@ app.post('/api/upload-local', async (req, res) => {
     }
   });
   writeStream.on('error', (err) => res.status(500).json({ error: 'Failed to save file' }));
+});
+
+app.post('/api/upload-music', async (req, res) => {
+  const filename = decodeURIComponent(req.headers['x-filename'] || 'music.mp3');
+  const ext = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'].includes(path.extname(filename).toLowerCase())
+    ? path.extname(filename).toLowerCase()
+    : '.mp3';
+  const musicFileId = `music_${Date.now()}`;
+  const outputPath = path.join(MUSIC_DIR, musicFileId + ext);
+  console.log('Music upload:', filename);
+
+  const writeStream = fs.createWriteStream(outputPath);
+  req.pipe(writeStream);
+
+  writeStream.on('finish', () => {
+    const stat = fs.statSync(outputPath);
+    if (stat.size < 256) return res.status(400).json({ error: 'Audio file is empty' });
+    res.json({
+      musicFileId,
+      filename,
+      size: stat.size,
+      previewUrl: `${publicBaseUrl(req)}/api/serve-music/${encodeURIComponent(musicFileId)}`
+    });
+  });
+  writeStream.on('error', () => res.status(500).json({ error: 'Failed to save audio file' }));
+});
+
+app.get('/api/serve-music/:id', (req, res) => {
+  const filePath = findMusicUploadPath(req.params.id);
+  if (!filePath) return res.status(404).json({ error: 'Music file not found' });
+  const ext = path.extname(filePath).toLowerCase();
+  const type = ext === '.wav' ? 'audio/wav' : ext === '.ogg' || ext === '.opus' ? 'audio/ogg' : 'audio/mpeg';
+  streamVideoFile(req, res, filePath, type);
 });
 
 app.get('/api/serve-upload-raw/:filename', (req, res) => {
@@ -797,7 +941,26 @@ function buildWatermarkFilterPart(requestId, exportFormat, cleanupPaths) {
   return drawtextWatermarkFilter(watermarkFilePath, exportFormat);
 }
 
-function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, removeWatermark, burnCaptions = true) {
+function buildAudioMixFilter(durationSec, musicSettings) {
+  const duration = Math.max(0.1, Number(durationSec) || 1);
+  const fadeIn = Math.min(Number(musicSettings.fadeIn) || 0, duration / 2);
+  const fadeOut = Math.min(Number(musicSettings.fadeOut) || 0, duration / 2);
+  const fadeOutStart = Math.max(0, duration - fadeOut);
+  const musicVolume = Math.max(0, Math.min(1, Number(musicSettings.musicVolume) || 0.18)) * (musicSettings.autoDuck ? 0.75 : 1);
+  const voiceVolume = Math.max(0, Math.min(2, Number(musicSettings.voiceVolume) || 1));
+  const musicStart = Math.max(0, Number(musicSettings.musicStart) || 0);
+  const parts = [
+    `[0:a]volume=${voiceVolume.toFixed(2)},asetpts=PTS-STARTPTS[a0]`,
+    `[1:a]atrim=start=${musicStart.toFixed(3)}:duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicVolume.toFixed(3)}` +
+      (fadeIn > 0 ? `,afade=t=in:st=0:d=${fadeIn.toFixed(2)}` : '') +
+      (fadeOut > 0 ? `,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeOut.toFixed(2)}` : '') +
+      `[a1]`,
+    '[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]'
+  ];
+  return parts.join(';\n');
+}
+
+function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, removeWatermark, burnCaptions = true, musicConfig = null) {
   const format = exportFormat || normalizeExportFormat();
   const filters = [
     `scale=${format.width}:${format.height}:force_original_aspect_ratio=decrease`,
@@ -837,10 +1000,16 @@ function buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, 
   console.log('Watermark:', removeWatermark ? 'removed' : 'enabled');
   if (chunks.length) console.log('First caption chunk:', chunks[0]);
 
+  const scriptLines = [`[0:v]${filters.join(',')}[v]`];
+  if (musicConfig?.musicPath) {
+    scriptLines.push(buildAudioMixFilter(musicConfig.durationSec, musicConfig.settings));
+    console.log('Background music:', musicConfig.settings.musicTrackId || musicConfig.settings.musicFileId);
+  }
+
   const scriptPath = path.join(DOWNLOAD_DIR, `filter_${requestId}.txt`);
-  fs.writeFileSync(scriptPath, `[0:v]${filters.join(',')}[v]`, 'utf8');
+  fs.writeFileSync(scriptPath, scriptLines.join(';\n'), 'utf8');
   cleanupPaths.push(scriptPath);
-  return { scriptPath, cleanupPaths };
+  return { scriptPath, cleanupPaths, hasMixedAudio: Boolean(musicConfig?.musicPath) };
 }
 
 // ─── CUT CLIP ─────────────────────────────────────────────────────────────────
@@ -859,11 +1028,20 @@ app.post('/api/cut-clip', (req, res) => {
     exportPreset,
     exportQuality,
     burnCaptions,
-    removeWatermark
+    removeWatermark,
+    musicEnabled,
+    musicFileId,
+    musicTrackId,
+    musicVolume,
+    voiceVolume,
+    musicStart,
+    musicFadeIn,
+    musicFadeOut,
+    musicAutoDuck
   } = req.body;
   if (!localFileId) return res.status(400).json({ error: 'localFileId required' });
 
-  const trycut = () => {
+  const trycut = async () => {
     if (!fs.existsSync(FFMPEG)) {
       console.log('⏳ Waiting for ffmpeg...');
       return setTimeout(trycut, 2000);
@@ -880,15 +1058,39 @@ app.post('/api/cut-clip', (req, res) => {
     const startSec = (startMs / 1000).toFixed(3);
     const durationSec = ((endMs - startMs) / 1000).toFixed(3);
     const exportFormat = normalizeExportFormat(exportPreset, exportQuality);
-    const { scriptPath, cleanupPaths } = buildVideoFilterScript(captionLines, words, startMs, endMs, requestId, captionStyle, captionPreset, captionSettings, hookOverlay, exportFormat, Boolean(removeWatermark), burnCaptions !== false);
+    let musicPath = '';
+    let musicSettings = null;
+    try {
+      const resolvedMusic = await resolveMusicPath({ musicEnabled, musicFileId, musicTrackId, musicVolume, voiceVolume, musicStart, musicFadeIn, musicFadeOut, musicAutoDuck });
+      musicPath = resolvedMusic.musicPath;
+      musicSettings = resolvedMusic.settings;
+    } catch (musicErr) {
+      return res.status(400).json({ error: musicErr.message || 'Background music could not be loaded' });
+    }
+    const { scriptPath, cleanupPaths, hasMixedAudio } = buildVideoFilterScript(
+      captionLines,
+      words,
+      startMs,
+      endMs,
+      requestId,
+      captionStyle,
+      captionPreset,
+      captionSettings,
+      hookOverlay,
+      exportFormat,
+      Boolean(removeWatermark),
+      burnCaptions !== false,
+      musicPath ? { musicPath, settings: musicSettings, durationSec } : null
+    );
     const args = [
       '-y',
       '-ss', startSec,
       '-t', durationSec,
       '-i', inputPath,
+      ...(musicPath ? ['-stream_loop', '-1', '-i', musicPath] : []),
       '-filter_complex_script', scriptPath,
       '-map', '[v]',
-      '-map', '0:a?',
+      ...(hasMixedAudio ? ['-map', '[a]'] : ['-map', '0:a?']),
       '-s', `${exportFormat.width}x${exportFormat.height}`,
       '-c:v', 'libx264',
       '-preset', 'veryfast',
