@@ -105,13 +105,21 @@ function streamVideoFile(req, res, filePath, contentType = 'video/mp4') {
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
   const stat = fs.statSync(filePath);
   const range = req.headers.range;
+  const chunkSize = 2 * 1024 * 1024;
   res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'HEAD') {
+    res.setHeader('Content-Length', stat.size);
+    return res.status(200).end();
+  }
 
   if (range) {
     const [startRaw, endRaw] = range.replace(/bytes=/, '').split('-');
     const start = parseInt(startRaw, 10);
-    const end = endRaw ? parseInt(endRaw, 10) : stat.size - 1;
+    const requestedEnd = endRaw ? parseInt(endRaw, 10) : start + chunkSize - 1;
+    const end = Math.min(requestedEnd, stat.size - 1);
     if (Number.isNaN(start) || Number.isNaN(end) || start >= stat.size || end >= stat.size) {
       res.setHeader('Content-Range', `bytes */${stat.size}`);
       return res.status(416).end();
@@ -119,11 +127,30 @@ function streamVideoFile(req, res, filePath, contentType = 'video/mp4') {
     res.status(206);
     res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
     res.setHeader('Content-Length', end - start + 1);
-    return fs.createReadStream(filePath, { start, end }).pipe(res);
+    const stream = fs.createReadStream(filePath, { start, end });
+    stream.on('error', err => {
+      console.error('Video stream error:', err.message);
+      if (!res.headersSent) res.status(500).end();
+      else res.destroy(err);
+    });
+    return stream.pipe(res);
   }
 
-  res.setHeader('Content-Length', stat.size);
-  fs.createReadStream(filePath).pipe(res);
+  const end = Math.min(chunkSize - 1, stat.size - 1);
+  res.status(206);
+  res.setHeader('Content-Range', `bytes 0-${end}/${stat.size}`);
+  res.setHeader('Content-Length', end + 1);
+  const stream = fs.createReadStream(filePath, { start: 0, end });
+  stream.on('error', err => {
+    console.error('Video stream error:', err.message);
+    if (!res.headersSent) res.status(500).end();
+    else res.destroy(err);
+  });
+  stream.pipe(res);
+}
+
+function localPreviewUrl(req, localFileId) {
+  return `${publicBaseUrl(req)}/api/serve-upload-file/${encodeURIComponent(localFileId)}`;
 }
 
 // ─── BINARY DOWNLOADER ───────────────────────────────────────────────────────
@@ -324,7 +351,7 @@ app.post('/api/youtube-upload', async (req, res) => {
     // YouTube URL — use yt-dlp
     const ready = await waitForFile(YTDLP);
     if (!ready) return res.status(503).json({ error: 'yt-dlp not ready, please try again.' });
-    const cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+    const cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
     console.log('Running:', cmd);
     await new Promise((resolve) => {
       exec(cmd, { maxBuffer: 1024 * 1024 * 200, timeout: 600000 }, (err, stdout, stderr) => {
@@ -343,8 +370,9 @@ app.post('/api/youtube-upload', async (req, res) => {
 
   console.log('✅ Video ready, size:', fs.statSync(outputPath).size);
 
+  const previewUrl = localPreviewUrl(req, localFileId);
   const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
-  if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+  if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: previewUrl, previewUrl });
 
   try {
     const fileData = fs.readFileSync(outputPath);
@@ -355,16 +383,21 @@ app.post('/api/youtube-upload', async (req, res) => {
     });
     const uploadData = JSON.parse(uploadRes);
     console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
-    res.json({ localFileId, uploadUrl: uploadData.upload_url });
+    res.json({ localFileId, uploadUrl: uploadData.upload_url, previewUrl });
   } catch (uploadErr) {
     console.error('AssemblyAI upload error:', uploadErr.message);
-    res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload/${localFileId}` });
+    res.json({ localFileId, uploadUrl: previewUrl, previewUrl });
   }
 });
 
 // ─── SERVE UPLOADED FILE ──────────────────────────────────────────────────────
 app.get('/api/serve-upload/:id', (req, res) => {
   const filePath = path.join(UPLOAD_DIR, req.params.id + '.mp4');
+  streamVideoFile(req, res, filePath, 'video/mp4');
+});
+
+app.get('/api/serve-upload-file/:id', (req, res) => {
+  const filePath = findUploadPath(req.params.id);
   streamVideoFile(req, res, filePath, 'video/mp4');
 });
 
@@ -381,8 +414,9 @@ app.post('/api/upload-local', async (req, res) => {
 
   writeStream.on('finish', async () => {
     console.log('✅ File saved, size:', fs.statSync(outputPath).size);
+    const previewUrl = localPreviewUrl(req, localFileId);
     const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
-    if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload-raw/${localFileId}${ext}` });
+    if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: previewUrl, previewUrl });
     try {
       const fileData = fs.readFileSync(outputPath);
       const uploadRes = await fetchWithBuffer('https://api.assemblyai.com/v2/upload', {
@@ -392,10 +426,10 @@ app.post('/api/upload-local', async (req, res) => {
       });
       const uploadData = JSON.parse(uploadRes);
       console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
-      res.json({ localFileId, uploadUrl: uploadData.upload_url });
+      res.json({ localFileId, uploadUrl: uploadData.upload_url, previewUrl });
     } catch (err) {
       console.error('AssemblyAI upload error:', err.message);
-      res.json({ localFileId, uploadUrl: `https://${req.headers.host}/api/serve-upload-raw/${localFileId}${ext}` });
+      res.json({ localFileId, uploadUrl: previewUrl, previewUrl });
     }
   });
   writeStream.on('error', (err) => res.status(500).json({ error: 'Failed to save file' }));
