@@ -203,7 +203,7 @@ function getMusicTrack(id) {
 }
 
 function musicFilePathForTrack(track) {
-  return path.join(MUSIC_DIR, `library_${track.id}.m4a`);
+  return path.join(MUSIC_DIR, `library_${track.id}.mp3`);
 }
 
 function ensureLibraryMusicTrack(track) {
@@ -223,7 +223,7 @@ function ensureLibraryMusicTrack(track) {
       '-i', 'anullsrc=r=44100:cl=stereo',
       '-filter_complex', filter,
       '-map', '[a]',
-      '-c:a', 'aac',
+      '-c:a', 'libmp3lame',
       '-b:a', '128k',
       outputPath
     ], { maxBuffer: 1024 * 1024 * 20, timeout: 120000 }, (err, stdout, stderr) => {
@@ -290,7 +290,7 @@ app.get('/api/music-library/:id', async (req, res) => {
     const track = getMusicTrack(req.params.id);
     if (!track) return res.status(404).json({ error: 'Track not found' });
     const musicPath = await ensureLibraryMusicTrack(track);
-    streamAudioFile(req, res, musicPath, 'audio/mp4');
+    streamAudioFile(req, res, musicPath, 'audio/mpeg');
   } catch (err) {
     res.status(503).json({ error: err.message || 'Music preview unavailable' });
   }
