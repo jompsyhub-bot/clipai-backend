@@ -195,7 +195,23 @@ const MUSIC_LIBRARY = [
   { id: 'funny-bounce', title: 'Funny Bounce', mood: 'Comedy', bpm: 124, freq: 523, color: '#ffe600' },
   { id: 'motivation-drive', title: 'Motivation Drive', mood: 'Motivation', bpm: 104, freq: 392, color: '#ff5c8a' },
   { id: 'soft-story', title: 'Soft Storytelling', mood: 'Emotional', bpm: 68, freq: 262, color: '#a394ff' },
-  { id: 'fitness-energy', title: 'Fitness Energy', mood: 'Fitness', bpm: 132, freq: 494, color: '#00ff88' }
+  { id: 'fitness-energy', title: 'Fitness Energy', mood: 'Fitness', bpm: 132, freq: 494, color: '#00ff88' },
+  { id: 'afrobeats-sun', title: 'Afrobeats Sun', mood: 'Afrobeats', bpm: 102, freq: 247, color: '#ff8a00' },
+  { id: 'amapiano-log', title: 'Amapiano Log Drum', mood: 'Amapiano', bpm: 112, freq: 196, color: '#00d4ff' },
+  { id: 'trap-808', title: 'Trap 808 Bounce', mood: 'Trap', bpm: 140, freq: 185, color: '#b15cff' },
+  { id: 'lofi-rain', title: 'Lo-fi Rain Keys', mood: 'Lo-fi', bpm: 76, freq: 220, color: '#8fb3ff' },
+  { id: 'corporate-clean', title: 'Corporate Clean', mood: 'Business', bpm: 96, freq: 262, color: '#5eead4' },
+  { id: 'news-pulse', title: 'News Pulse', mood: 'News', bpm: 110, freq: 233, color: '#f43f5e' },
+  { id: 'suspense-low', title: 'Suspense Low Tension', mood: 'Suspense', bpm: 64, freq: 147, color: '#94a3b8' },
+  { id: 'dreamy-air', title: 'Dreamy Air Pads', mood: 'Dreamy', bpm: 84, freq: 330, color: '#c084fc' },
+  { id: 'dance-club', title: 'Dance Club Starter', mood: 'Dance', bpm: 126, freq: 262, color: '#22d3ee' },
+  { id: 'reggae-lite', title: 'Reggae Lite Skank', mood: 'Reggae', bpm: 88, freq: 196, color: '#84cc16' },
+  { id: 'latin-pop', title: 'Latin Pop Snap', mood: 'Latin', bpm: 116, freq: 294, color: '#fb7185' },
+  { id: 'dark-tech', title: 'Dark Tech Drive', mood: 'Tech', bpm: 122, freq: 165, color: '#64748b' },
+  { id: 'acoustic-bright', title: 'Acoustic Bright Pluck', mood: 'Acoustic', bpm: 92, freq: 247, color: '#fbbf24' },
+  { id: 'ambient-focus', title: 'Ambient Focus Bed', mood: 'Ambient', bpm: 60, freq: 220, color: '#38bdf8' },
+  { id: 'hiphop-chill', title: 'Hip Hop Chill', mood: 'Hip Hop', bpm: 90, freq: 208, color: '#f97316' },
+  { id: 'glitch-future', title: 'Glitch Future Bits', mood: 'Glitch', bpm: 128, freq: 311, color: '#2dd4bf' }
 ];
 
 function getMusicTrack(id) {
@@ -203,7 +219,7 @@ function getMusicTrack(id) {
 }
 
 function musicFilePathForTrack(track) {
-  return path.join(MUSIC_DIR, `library_v3_${track.id}.wav`);
+  return path.join(MUSIC_DIR, `library_v4_${track.id}.wav`);
 }
 
 function clampSample(value) {
@@ -311,6 +327,198 @@ function musicPresetForTrack(track) {
       hatEvery: 0.25,
       swing: 0,
       drive: 1.05
+    },
+    'afrobeats-sun': {
+      root: 246.94,
+      scale: [0, 2, 4, 7, 9, 11, 12],
+      bass: [0, 7, 0, 9, 4, 7, 2, 7],
+      melody: [12, 16, 14, 12, 19, 16, 14, 21],
+      chord: [0, 4, 9],
+      kick: [0, 1.75, 2.5],
+      snare: [1, 3],
+      hatEvery: 0.5,
+      swing: 0.08,
+      drive: 0.88
+    },
+    'amapiano-log': {
+      root: 196,
+      scale: [0, 3, 5, 7, 10, 12],
+      bass: [0, 0, 12, 7, 0, 10, 7, 3],
+      melody: [7, 10, 12, 15, 12, 10, 7, 5],
+      chord: [0, 3, 10],
+      kick: [0, 2],
+      snare: [1.5, 3],
+      hatEvery: 0.5,
+      swing: 0.04,
+      drive: 0.9
+    },
+    'trap-808': {
+      root: 146.83,
+      scale: [0, 3, 5, 7, 10, 12],
+      bass: [0, 0, -12, 7, 0, 10, -5, 0],
+      melody: [12, 12, 15, 19, 17, 15, 12, 10],
+      chord: [0, 3, 7],
+      kick: [0, 0.75, 2.25, 3.25],
+      snare: [1, 3],
+      hatEvery: 0.25,
+      swing: 0.01,
+      drive: 1.15
+    },
+    'lofi-rain': {
+      root: 220,
+      scale: [0, 2, 3, 7, 10, 12],
+      bass: [0, 0, 3, 3, 10, 10, 7, 7],
+      melody: [12, 10, 7, 5, 10, 12, 15, 10],
+      chord: [0, 3, 7, 10],
+      kick: [0, 2.25],
+      snare: [1.5, 3.5],
+      hatEvery: 1,
+      swing: 0.09,
+      drive: 0.42
+    },
+    'corporate-clean': {
+      root: 261.63,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 4, 7, 4, 9, 7, 4, 2],
+      melody: [12, 14, 16, 14, 19, 16, 14, 12],
+      chord: [0, 4, 7],
+      kick: [0, 2],
+      snare: [1, 3],
+      hatEvery: 1,
+      swing: 0,
+      drive: 0.55
+    },
+    'news-pulse': {
+      root: 233.08,
+      scale: [0, 2, 3, 7, 10, 12],
+      bass: [0, 0, 7, 0, 10, 7, 3, 0],
+      melody: [12, 7, 12, 15, 12, 10, 7, 10],
+      chord: [0, 3, 7],
+      kick: [0, 1, 2, 3],
+      snare: [2],
+      hatEvery: 0.5,
+      swing: 0,
+      drive: 0.75
+    },
+    'suspense-low': {
+      root: 146.83,
+      scale: [0, 1, 3, 6, 7, 10, 12],
+      bass: [0, -12, 0, 1, 6, 3, 1, 0],
+      melody: [12, 13, 15, 18, 15, 13, 12, 10],
+      chord: [0, 1, 6],
+      kick: [0],
+      snare: [],
+      hatEvery: 2,
+      swing: 0,
+      drive: 0.5
+    },
+    'dreamy-air': {
+      root: 329.63,
+      scale: [0, 2, 4, 7, 11, 12],
+      bass: [0, 0, 7, 7, 11, 11, 4, 4],
+      melody: [12, 16, 19, 23, 19, 16, 14, 12],
+      chord: [0, 4, 11],
+      kick: [0],
+      snare: [],
+      hatEvery: 4,
+      swing: 0.02,
+      drive: 0.38
+    },
+    'dance-club': {
+      root: 261.63,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 0, 0, 0, 7, 7, 9, 9],
+      melody: [12, 14, 16, 19, 16, 14, 12, 9],
+      chord: [0, 4, 7],
+      kick: [0, 1, 2, 3],
+      snare: [1, 3],
+      hatEvery: 0.25,
+      swing: 0,
+      drive: 1.1
+    },
+    'reggae-lite': {
+      root: 196,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 0, 7, 7, 9, 7, 4, 2],
+      melody: [7, 9, 12, 9, 7, 4, 2, 4],
+      chord: [0, 4, 7],
+      kick: [0, 2],
+      snare: [1, 3],
+      hatEvery: 1,
+      swing: 0.07,
+      drive: 0.6
+    },
+    'latin-pop': {
+      root: 293.66,
+      scale: [0, 2, 4, 5, 7, 9, 12],
+      bass: [0, 7, 9, 7, 5, 7, 4, 2],
+      melody: [12, 16, 17, 16, 14, 12, 9, 12],
+      chord: [0, 4, 7],
+      kick: [0, 1.5, 2.5],
+      snare: [1, 3],
+      hatEvery: 0.5,
+      swing: 0.05,
+      drive: 0.9
+    },
+    'dark-tech': {
+      root: 164.81,
+      scale: [0, 1, 3, 7, 10, 12],
+      bass: [0, 0, 0, 7, 3, 0, 10, 7],
+      melody: [12, 13, 15, 19, 15, 13, 10, 12],
+      chord: [0, 3, 10],
+      kick: [0, 1, 2, 3],
+      snare: [1.5, 3.5],
+      hatEvery: 0.25,
+      swing: 0,
+      drive: 0.95
+    },
+    'acoustic-bright': {
+      root: 246.94,
+      scale: [0, 2, 4, 7, 9, 12],
+      bass: [0, 4, 7, 9, 7, 4, 2, 0],
+      melody: [12, 16, 19, 16, 14, 12, 9, 7],
+      chord: [0, 4, 7],
+      kick: [0],
+      snare: [2],
+      hatEvery: 2,
+      swing: 0.03,
+      drive: 0.5
+    },
+    'ambient-focus': {
+      root: 220,
+      scale: [0, 2, 5, 7, 10, 12],
+      bass: [0, 0, 5, 5, 10, 10, 7, 7],
+      melody: [12, 17, 19, 17, 22, 19, 17, 12],
+      chord: [0, 5, 10],
+      kick: [],
+      snare: [],
+      hatEvery: 8,
+      swing: 0,
+      drive: 0.28
+    },
+    'hiphop-chill': {
+      root: 207.65,
+      scale: [0, 3, 5, 7, 10, 12],
+      bass: [0, 0, 7, 5, 3, 3, 10, 7],
+      melody: [12, 10, 7, 10, 15, 12, 10, 7],
+      chord: [0, 3, 7, 10],
+      kick: [0, 0.75, 2.25],
+      snare: [1, 3],
+      hatEvery: 0.5,
+      swing: 0.08,
+      drive: 0.72
+    },
+    'glitch-future': {
+      root: 311.13,
+      scale: [0, 1, 5, 7, 11, 12],
+      bass: [0, 11, 0, 5, 7, 1, 12, 5],
+      melody: [12, 13, 17, 19, 23, 19, 17, 13],
+      chord: [0, 5, 11],
+      kick: [0, 1.25, 2, 3.5],
+      snare: [1, 3],
+      hatEvery: 0.25,
+      swing: 0.02,
+      drive: 1
     }
   };
   return presets[track.id] || presets['viral-pop'];
