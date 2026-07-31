@@ -183,8 +183,59 @@ function streamAudioFile(req, res, filePath, contentType = 'audio/mpeg') {
   fs.createReadStream(filePath).pipe(res);
 }
 
+function requestJson(url) {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+    protocol.get(url, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          return reject(new Error(`Request failed with status ${response.statusCode}`));
+        }
+        try {
+          resolve(JSON.parse(body));
+        } catch (err) {
+          reject(new Error('Provider returned invalid data'));
+        }
+      });
+    }).on('error', reject);
+  });
+}
+
+function downloadToFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    const protocol = url.startsWith('https') ? https : http;
+    const req = protocol.get(url, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+        file.close();
+        try { fs.unlinkSync(dest); } catch (err) {}
+        return resolve(downloadToFile(response.headers.location, dest));
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        file.close();
+        try { fs.unlinkSync(dest); } catch (err) {}
+        return reject(new Error(`Download failed with status ${response.statusCode}`));
+      }
+      response.pipe(file);
+      file.on('finish', () => file.close(() => resolve(dest)));
+    });
+    req.on('error', err => {
+      file.close();
+      try { fs.unlinkSync(dest); } catch (unlinkErr) {}
+      reject(err);
+    });
+  });
+}
+
 function localPreviewUrl(req, localFileId) {
   return `${publicBaseUrl(req)}/api/serve-upload-file/${encodeURIComponent(localFileId)}`;
+}
+
+function musicPreviewUrl(req, musicFileId) {
+  return `${publicBaseUrl(req)}/api/serve-music/${encodeURIComponent(musicFileId)}`;
 }
 
 const MUSIC_LIBRARY = [
@@ -235,7 +286,7 @@ function getMusicTrack(id) {
 }
 
 function musicFilePathForTrack(track) {
-  return path.join(MUSIC_DIR, `library_v6_${track.id}.wav`);
+  return path.join(MUSIC_DIR, `library_v7_${track.id}.wav`);
 }
 
 function clampSample(value) {
@@ -538,16 +589,16 @@ function musicPresetForTrack(track) {
     }
   };
   const categoryStyles = {
-    Trending: { wave: 'bright', bassWave: 'saw', chordWave: 'wide', percussion: 'pop', texture: 'spark', leadGain: 1.1, chordGain: 0.9, bassGain: 1 },
-    Creator: { wave: 'soft', bassWave: 'sine', chordWave: 'sine', percussion: 'clean', texture: 'click', leadGain: 0.45, chordGain: 0.72, bassGain: 0.55 },
-    Cinematic: { wave: 'brass', bassWave: 'sine', chordWave: 'pad', percussion: 'cinematic', texture: 'rumble', leadGain: 0.55, chordGain: 1.25, bassGain: 1.05 },
-    Chill: { wave: 'rhodes', bassWave: 'sine', chordWave: 'warm', percussion: 'lofi', texture: 'vinyl', leadGain: 0.6, chordGain: 1.08, bassGain: 0.62 },
-    Global: { wave: 'pluck', bassWave: 'round', chordWave: 'stab', percussion: 'global', texture: 'shaker', leadGain: 0.85, chordGain: 0.78, bassGain: 0.82 },
-    Urban: { wave: 'bell', bassWave: '808', chordWave: 'dark', percussion: 'trap', texture: 'hatroll', leadGain: 0.7, chordGain: 0.62, bassGain: 1.35 },
-    Playful: { wave: 'toy', bassWave: 'square', chordWave: 'pluck', percussion: 'comedy', texture: 'popcorn', leadGain: 1.08, chordGain: 0.7, bassGain: 0.68 },
-    Motivation: { wave: 'anthem', bassWave: 'saw', chordWave: 'wide', percussion: 'drive', texture: 'lift', leadGain: 0.95, chordGain: 1.05, bassGain: 1.05 },
-    Organic: { wave: 'string', bassWave: 'round', chordWave: 'pluck', percussion: 'organic', texture: 'wood', leadGain: 0.74, chordGain: 0.92, bassGain: 0.62 },
-    Tech: { wave: 'bit', bassWave: 'saw', chordWave: 'digital', percussion: 'tech', texture: 'glitch', leadGain: 0.9, chordGain: 0.78, bassGain: 0.9 }
+    Trending: { wave: 'bright', bassWave: 'saw', chordWave: 'wide', percussion: 'pop', texture: 'spark', leadGain: 1.1, chordGain: 0.9, bassGain: 1, rhythmGain: 0.72 },
+    Creator: { wave: 'soft', bassWave: 'sine', chordWave: 'sine', percussion: 'clean', texture: 'click', leadGain: 0.45, chordGain: 0.72, bassGain: 0.55, rhythmGain: 0.28 },
+    Cinematic: { wave: 'brass', bassWave: 'sine', chordWave: 'pad', percussion: 'cinematic', texture: 'rumble', leadGain: 0.55, chordGain: 1.25, bassGain: 1.05, rhythmGain: 0.42 },
+    Chill: { wave: 'rhodes', bassWave: 'sine', chordWave: 'warm', percussion: 'lofi', texture: 'vinyl', leadGain: 0.6, chordGain: 1.08, bassGain: 0.62, rhythmGain: 0.24 },
+    Global: { wave: 'pluck', bassWave: 'round', chordWave: 'stab', percussion: 'global', texture: 'shaker', leadGain: 0.85, chordGain: 0.78, bassGain: 0.82, rhythmGain: 0.55 },
+    Urban: { wave: 'bell', bassWave: '808', chordWave: 'dark', percussion: 'trap', texture: 'hatroll', leadGain: 0.7, chordGain: 0.62, bassGain: 1.35, rhythmGain: 0.62 },
+    Playful: { wave: 'toy', bassWave: 'square', chordWave: 'pluck', percussion: 'comedy', texture: 'popcorn', leadGain: 1.08, chordGain: 0.7, bassGain: 0.68, rhythmGain: 0.4 },
+    Motivation: { wave: 'anthem', bassWave: 'saw', chordWave: 'wide', percussion: 'drive', texture: 'lift', leadGain: 0.95, chordGain: 1.05, bassGain: 1.05, rhythmGain: 0.58 },
+    Organic: { wave: 'string', bassWave: 'round', chordWave: 'pluck', percussion: 'organic', texture: 'wood', leadGain: 0.74, chordGain: 0.92, bassGain: 0.62, rhythmGain: 0.25 },
+    Tech: { wave: 'bit', bassWave: 'saw', chordWave: 'digital', percussion: 'tech', texture: 'glitch', leadGain: 0.9, chordGain: 0.78, bassGain: 0.9, rhythmGain: 0.48 }
   };
   const generatedByCategory = {
     Trending: { root: 293.66, scale: [0, 2, 4, 7, 9, 12], bass: [0, 0, 7, 9, 0, 4, 7, 12], melody: [12, 14, 16, 19, 21, 19, 16, 14], chord: [0, 4, 7], kick: [0, 1, 2, 3], snare: [1, 3], hatEvery: 0.25, swing: 0.01, drive: 1.05 },
@@ -679,7 +730,7 @@ function synthLibraryTrack(track, outputPath) {
         const env = Math.exp(-dist * 24);
         const sweepBase = preset.percussion === 'cinematic' ? 36 : preset.percussion === 'trap' ? 42 : 50;
         const sweep = sweepBase + (preset.percussion === 'trap' ? 130 : 95) * env;
-        sample += Math.sin(2 * Math.PI * sweep * t) * (preset.percussion === 'cinematic' ? 0.95 : 0.75) * env;
+        sample += Math.sin(2 * Math.PI * sweep * t) * (preset.percussion === 'cinematic' ? 0.95 : 0.75) * env * (preset.rhythmGain || 0.5);
       }
     }
 
@@ -689,8 +740,8 @@ function synthLibraryTrack(track, outputPath) {
         const env = Math.exp(-dist * 28);
         const noiseGain = preset.percussion === 'comedy' ? 0.25 : preset.percussion === 'organic' ? 0.18 : 0.42;
         const tone = preset.percussion === 'global' ? 420 : preset.percussion === 'trap' ? 210 : 190;
-        sample += noise() * noiseGain * env;
-        sample += Math.sin(2 * Math.PI * tone * t) * 0.14 * env;
+        sample += noise() * noiseGain * env * (preset.rhythmGain || 0.5);
+        sample += Math.sin(2 * Math.PI * tone * t) * 0.14 * env * (preset.rhythmGain || 0.5);
       }
     }
 
@@ -698,10 +749,10 @@ function synthLibraryTrack(track, outputPath) {
     const hatPhase = (beat / hatInterval) - Math.floor(beat / hatInterval);
     if (hatPhase < 0.12) {
       const env = Math.exp(-hatPhase * 38);
-      const hatGain = preset.texture === 'hatroll' ? 0.17 : preset.texture === 'shaker' ? 0.14 : preset.texture === 'vinyl' ? 0.04 : 0.11;
+      const hatGain = preset.texture === 'hatroll' ? 0.08 : preset.texture === 'shaker' ? 0.075 : preset.texture === 'vinyl' ? 0.018 : 0.045;
       sample += noise() * hatGain * env;
-      if (preset.texture === 'shaker' && hatPhase < 0.08) sample += Math.sin(2 * Math.PI * 6500 * t) * 0.025 * env;
-      if (preset.texture === 'popcorn' && hatPhase < 0.06) sample += oscillator('toy', 1200 * t) * 0.08 * env;
+      if (preset.texture === 'shaker' && hatPhase < 0.08) sample += Math.sin(2 * Math.PI * 6500 * t) * 0.012 * env;
+      if (preset.texture === 'popcorn' && hatPhase < 0.06) sample += oscillator('toy', 1200 * t) * 0.035 * env;
     }
 
     if (preset.texture === 'vinyl') {
@@ -744,7 +795,7 @@ function ensureLibraryMusicTrack(track) {
 
 function findMusicUploadPath(musicFileId) {
   const id = String(musicFileId || '').trim();
-  if (!/^music_\d+/i.test(id)) return '';
+  if (!/^music_[a-z0-9_]+/i.test(id)) return '';
   const match = fs.readdirSync(MUSIC_DIR).find(file => file.startsWith(id));
   return match ? path.join(MUSIC_DIR, match) : '';
 }
@@ -777,6 +828,102 @@ async function resolveMusicPath(body = {}) {
   return { settings, musicPath };
 }
 
+function requireJamendoClientId() {
+  const clientId = (process.env.JAMENDO_CLIENT_ID || '').trim();
+  if (!clientId) throw new Error('Music provider is not configured yet. Add JAMENDO_CLIENT_ID on the backend.');
+  return clientId;
+}
+
+function jamendoTrackToClipAI(track) {
+  const downloadAllowed = track.audiodownload_allowed !== false && Boolean(track.audiodownload);
+  return {
+    id: String(track.id || ''),
+    provider: 'jamendo',
+    title: track.name || 'Jamendo track',
+    artist: track.artist_name || 'Jamendo artist',
+    album: track.album_name || '',
+    duration: Number(track.duration || 0),
+    image: track.album_image || track.image || '',
+    previewUrl: track.audio || '',
+    licenseUrl: track.license_ccurl || '',
+    pageUrl: track.shareurl || '',
+    canDownload: downloadAllowed
+  };
+}
+
+async function searchJamendoTracks(query) {
+  const clientId = requireJamendoClientId();
+  const safeQuery = String(query || 'cinematic background').trim().slice(0, 80) || 'cinematic background';
+  const url = new URL('https://api.jamendo.com/v3.0/tracks/');
+  url.searchParams.set('client_id', clientId);
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '12');
+  url.searchParams.set('audioformat', 'mp32');
+  url.searchParams.set('audiodlformat', 'mp32');
+  url.searchParams.set('include', 'musicinfo');
+  url.searchParams.set('groupby', 'artist_id');
+  url.searchParams.set('order', 'relevance');
+  url.searchParams.set('search', safeQuery);
+  const data = await requestJson(url.toString());
+  return (data.results || [])
+    .map(jamendoTrackToClipAI)
+    .filter(track => track.id && track.previewUrl);
+}
+
+async function getJamendoTrackForDownload(trackId) {
+  const clientId = requireJamendoClientId();
+  const id = String(trackId || '').trim();
+  if (!/^\d+$/.test(id)) throw new Error('Invalid music track.');
+  const url = new URL('https://api.jamendo.com/v3.0/tracks/');
+  url.searchParams.set('client_id', clientId);
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('audioformat', 'mp32');
+  url.searchParams.set('audiodlformat', 'mp32');
+  url.searchParams.set('id', id);
+  const data = await requestJson(url.toString());
+  const rawTrack = (data.results || [])[0];
+  if (!rawTrack) throw new Error('Track was not found.');
+  const track = jamendoTrackToClipAI(rawTrack);
+  if (!track.canDownload) throw new Error('This track cannot be downloaded through ClipAI.');
+  return { rawTrack, track, downloadUrl: rawTrack.audiodownload };
+}
+
+app.get('/api/music-provider/search', async (req, res) => {
+  try {
+    const provider = String(req.query.provider || 'jamendo').toLowerCase();
+    if (provider !== 'jamendo') return res.status(400).json({ error: 'Music provider is not supported yet.' });
+    const tracks = await searchJamendoTracks(req.query.q);
+    res.json({ provider: 'jamendo', tracks });
+  } catch (err) {
+    res.status(503).json({ error: err.message || 'Music search is unavailable right now.' });
+  }
+});
+
+app.post('/api/music-provider/download', async (req, res) => {
+  try {
+    const provider = String(req.body.provider || 'jamendo').toLowerCase();
+    if (provider !== 'jamendo') return res.status(400).json({ error: 'Music provider is not supported yet.' });
+    const { track, downloadUrl } = await getJamendoTrackForDownload(req.body.trackId);
+    const musicFileId = `music_jamendo_${track.id}`;
+    const outputPath = path.join(MUSIC_DIR, `${musicFileId}.mp3`);
+    if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1024) {
+      await downloadToFile(downloadUrl, outputPath);
+    }
+    res.json({
+      musicFileId,
+      title: `${track.title} - ${track.artist}`,
+      provider: 'jamendo',
+      sourceTrackId: track.id,
+      previewUrl: musicPreviewUrl(req, musicFileId),
+      licenseUrl: track.licenseUrl,
+      pageUrl: track.pageUrl
+    });
+  } catch (err) {
+    res.status(503).json({ error: err.message || 'Music could not be added right now.' });
+  }
+});
+
 app.get('/api/music-library', (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase();
   const category = String(req.query.category || '').trim().toLowerCase();
@@ -789,7 +936,6 @@ app.get('/api/music-library', (req, res) => {
       title: track.title,
       category: track.category,
       mood: track.mood,
-      bpm: track.bpm,
       color: track.color,
       previewUrl: `${publicBaseUrl(req)}/api/music-library/${encodeURIComponent(track.id)}`
     }));
