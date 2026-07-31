@@ -188,30 +188,46 @@ function localPreviewUrl(req, localFileId) {
 }
 
 const MUSIC_LIBRARY = [
-  { id: 'viral-pop', title: 'Viral Pop Lift', mood: 'Upbeat', bpm: 118, freq: 440, color: '#7c6af7' },
-  { id: 'clean-podcast', title: 'Clean Podcast Bed', mood: 'Podcast', bpm: 88, freq: 220, color: '#3ecf8e' },
-  { id: 'cinematic-rise', title: 'Cinematic Rise', mood: 'Cinematic', bpm: 72, freq: 330, color: '#f0a832' },
-  { id: 'luxury-tech', title: 'Luxury Tech Pulse', mood: 'Luxury', bpm: 96, freq: 277, color: '#00c8ff' },
-  { id: 'funny-bounce', title: 'Funny Bounce', mood: 'Comedy', bpm: 124, freq: 523, color: '#ffe600' },
-  { id: 'motivation-drive', title: 'Motivation Drive', mood: 'Motivation', bpm: 104, freq: 392, color: '#ff5c8a' },
-  { id: 'soft-story', title: 'Soft Storytelling', mood: 'Emotional', bpm: 68, freq: 262, color: '#a394ff' },
-  { id: 'fitness-energy', title: 'Fitness Energy', mood: 'Fitness', bpm: 132, freq: 494, color: '#00ff88' },
-  { id: 'afrobeats-sun', title: 'Afrobeats Sun', mood: 'Afrobeats', bpm: 102, freq: 247, color: '#ff8a00' },
-  { id: 'amapiano-log', title: 'Amapiano Log Drum', mood: 'Amapiano', bpm: 112, freq: 196, color: '#00d4ff' },
-  { id: 'trap-808', title: 'Trap 808 Bounce', mood: 'Trap', bpm: 140, freq: 185, color: '#b15cff' },
-  { id: 'lofi-rain', title: 'Lo-fi Rain Keys', mood: 'Lo-fi', bpm: 76, freq: 220, color: '#8fb3ff' },
-  { id: 'corporate-clean', title: 'Corporate Clean', mood: 'Business', bpm: 96, freq: 262, color: '#5eead4' },
-  { id: 'news-pulse', title: 'News Pulse', mood: 'News', bpm: 110, freq: 233, color: '#f43f5e' },
-  { id: 'suspense-low', title: 'Suspense Low Tension', mood: 'Suspense', bpm: 64, freq: 147, color: '#94a3b8' },
-  { id: 'dreamy-air', title: 'Dreamy Air Pads', mood: 'Dreamy', bpm: 84, freq: 330, color: '#c084fc' },
-  { id: 'dance-club', title: 'Dance Club Starter', mood: 'Dance', bpm: 126, freq: 262, color: '#22d3ee' },
-  { id: 'reggae-lite', title: 'Reggae Lite Skank', mood: 'Reggae', bpm: 88, freq: 196, color: '#84cc16' },
-  { id: 'latin-pop', title: 'Latin Pop Snap', mood: 'Latin', bpm: 116, freq: 294, color: '#fb7185' },
-  { id: 'dark-tech', title: 'Dark Tech Drive', mood: 'Tech', bpm: 122, freq: 165, color: '#64748b' },
-  { id: 'acoustic-bright', title: 'Acoustic Bright Pluck', mood: 'Acoustic', bpm: 92, freq: 247, color: '#fbbf24' },
-  { id: 'ambient-focus', title: 'Ambient Focus Bed', mood: 'Ambient', bpm: 60, freq: 220, color: '#38bdf8' },
-  { id: 'hiphop-chill', title: 'Hip Hop Chill', mood: 'Hip Hop', bpm: 90, freq: 208, color: '#f97316' },
-  { id: 'glitch-future', title: 'Glitch Future Bits', mood: 'Glitch', bpm: 128, freq: 311, color: '#2dd4bf' }
+  { id: 'viral-pop', title: 'Viral Pop Lift', category: 'Trending', mood: 'Upbeat', bpm: 118, freq: 440, color: '#7c6af7' },
+  { id: 'dance-club', title: 'Dance Club Starter', category: 'Trending', mood: 'Dance', bpm: 126, freq: 262, color: '#22d3ee' },
+  { id: 'fitness-energy', title: 'Fitness Energy', category: 'Trending', mood: 'Fitness', bpm: 132, freq: 494, color: '#00ff88' },
+  { id: 'glitch-future', title: 'Glitch Future Bits', category: 'Trending', mood: 'Glitch', bpm: 128, freq: 311, color: '#2dd4bf' },
+  { id: 'hyper-scroll', title: 'Hyper Scroll Pop', category: 'Trending', mood: 'Fast Pop', bpm: 150, freq: 349, color: '#ff4fd8' },
+  { id: 'clean-podcast', title: 'Clean Podcast Bed', category: 'Creator', mood: 'Podcast', bpm: 88, freq: 220, color: '#3ecf8e' },
+  { id: 'corporate-clean', title: 'Corporate Clean', category: 'Creator', mood: 'Business', bpm: 96, freq: 262, color: '#5eead4' },
+  { id: 'news-pulse', title: 'News Pulse', category: 'Creator', mood: 'News', bpm: 110, freq: 233, color: '#f43f5e' },
+  { id: 'tutorial-glow', title: 'Tutorial Glow', category: 'Creator', mood: 'Explainer', bpm: 92, freq: 294, color: '#60a5fa' },
+  { id: 'luxury-tech', title: 'Luxury Tech Pulse', category: 'Creator', mood: 'Luxury', bpm: 96, freq: 277, color: '#00c8ff' },
+  { id: 'cinematic-rise', title: 'Cinematic Rise', category: 'Cinematic', mood: 'Cinematic', bpm: 72, freq: 330, color: '#f0a832' },
+  { id: 'suspense-low', title: 'Suspense Low Tension', category: 'Cinematic', mood: 'Suspense', bpm: 64, freq: 147, color: '#94a3b8' },
+  { id: 'hero-trailer', title: 'Hero Trailer Hits', category: 'Cinematic', mood: 'Trailer', bpm: 84, freq: 175, color: '#fb923c' },
+  { id: 'dark-documentary', title: 'Dark Documentary Bed', category: 'Cinematic', mood: 'Documentary', bpm: 70, freq: 156, color: '#a78bfa' },
+  { id: 'soft-story', title: 'Soft Storytelling', category: 'Chill', mood: 'Emotional', bpm: 68, freq: 262, color: '#a394ff' },
+  { id: 'lofi-rain', title: 'Lo-fi Rain Keys', category: 'Chill', mood: 'Lo-fi', bpm: 76, freq: 220, color: '#8fb3ff' },
+  { id: 'dreamy-air', title: 'Dreamy Air Pads', category: 'Chill', mood: 'Dreamy', bpm: 84, freq: 330, color: '#c084fc' },
+  { id: 'ambient-focus', title: 'Ambient Focus Bed', category: 'Chill', mood: 'Ambient', bpm: 60, freq: 220, color: '#38bdf8' },
+  { id: 'coffee-shop', title: 'Coffee Shop Rhodes', category: 'Chill', mood: 'Warm', bpm: 82, freq: 247, color: '#c08457' },
+  { id: 'afrobeats-sun', title: 'Afrobeats Sun', category: 'Global', mood: 'Afrobeats', bpm: 102, freq: 247, color: '#ff8a00' },
+  { id: 'amapiano-log', title: 'Amapiano Log Drum', category: 'Global', mood: 'Amapiano', bpm: 112, freq: 196, color: '#00d4ff' },
+  { id: 'reggae-lite', title: 'Reggae Lite Skank', category: 'Global', mood: 'Reggae', bpm: 88, freq: 196, color: '#84cc16' },
+  { id: 'latin-pop', title: 'Latin Pop Snap', category: 'Global', mood: 'Latin', bpm: 116, freq: 294, color: '#fb7185' },
+  { id: 'dancehall-wave', title: 'Dancehall Wave', category: 'Global', mood: 'Dancehall', bpm: 98, freq: 208, color: '#14b8a6' },
+  { id: 'trap-808', title: 'Trap 808 Bounce', category: 'Urban', mood: 'Trap', bpm: 140, freq: 185, color: '#b15cff' },
+  { id: 'hiphop-chill', title: 'Hip Hop Chill', category: 'Urban', mood: 'Hip Hop', bpm: 90, freq: 208, color: '#f97316' },
+  { id: 'drill-night', title: 'Drill Night Pulse', category: 'Urban', mood: 'Drill', bpm: 144, freq: 165, color: '#818cf8' },
+  { id: 'rnb-silk', title: 'R&B Silk Keys', category: 'Urban', mood: 'R&B', bpm: 78, freq: 233, color: '#f472b6' },
+  { id: 'funny-bounce', title: 'Funny Bounce', category: 'Playful', mood: 'Comedy', bpm: 124, freq: 523, color: '#ffe600' },
+  { id: 'cartoon-pop', title: 'Cartoon Pop', category: 'Playful', mood: 'Cartoon', bpm: 132, freq: 587, color: '#facc15' },
+  { id: 'quirky-pluck', title: 'Quirky Pluck', category: 'Playful', mood: 'Quirky', bpm: 108, freq: 392, color: '#34d399' },
+  { id: 'motivation-drive', title: 'Motivation Drive', category: 'Motivation', mood: 'Motivation', bpm: 104, freq: 392, color: '#ff5c8a' },
+  { id: 'winner-rise', title: 'Winner Rise', category: 'Motivation', mood: 'Inspirational', bpm: 100, freq: 330, color: '#f59e0b' },
+  { id: 'acoustic-bright', title: 'Acoustic Bright Pluck', category: 'Organic', mood: 'Acoustic', bpm: 92, freq: 247, color: '#fbbf24' },
+  { id: 'ukulele-smile', title: 'Ukulele Smile', category: 'Organic', mood: 'Happy', bpm: 106, freq: 392, color: '#fde047' },
+  { id: 'handpan-calm', title: 'Handpan Calm', category: 'Organic', mood: 'Calm', bpm: 72, freq: 220, color: '#67e8f9' },
+  { id: 'dark-tech', title: 'Dark Tech Drive', category: 'Tech', mood: 'Tech', bpm: 122, freq: 165, color: '#64748b' },
+  { id: 'cyber-runner', title: 'Cyber Runner', category: 'Tech', mood: 'Cyber', bpm: 136, freq: 185, color: '#06b6d4' },
+  { id: 'minimal-clicks', title: 'Minimal Clicks', category: 'Tech', mood: 'Minimal', bpm: 118, freq: 262, color: '#94a3b8' },
+  { id: 'space-signal', title: 'Space Signal', category: 'Tech', mood: 'Sci-fi', bpm: 80, freq: 311, color: '#8b5cf6' }
 ];
 
 function getMusicTrack(id) {
@@ -219,7 +235,7 @@ function getMusicTrack(id) {
 }
 
 function musicFilePathForTrack(track) {
-  return path.join(MUSIC_DIR, `library_v4_${track.id}.wav`);
+  return path.join(MUSIC_DIR, `library_v6_${track.id}.wav`);
 }
 
 function clampSample(value) {
@@ -521,7 +537,62 @@ function musicPresetForTrack(track) {
       drive: 1
     }
   };
-  return presets[track.id] || presets['viral-pop'];
+  const categoryStyles = {
+    Trending: { wave: 'bright', bassWave: 'saw', chordWave: 'wide', percussion: 'pop', texture: 'spark', leadGain: 1.1, chordGain: 0.9, bassGain: 1 },
+    Creator: { wave: 'soft', bassWave: 'sine', chordWave: 'sine', percussion: 'clean', texture: 'click', leadGain: 0.45, chordGain: 0.72, bassGain: 0.55 },
+    Cinematic: { wave: 'brass', bassWave: 'sine', chordWave: 'pad', percussion: 'cinematic', texture: 'rumble', leadGain: 0.55, chordGain: 1.25, bassGain: 1.05 },
+    Chill: { wave: 'rhodes', bassWave: 'sine', chordWave: 'warm', percussion: 'lofi', texture: 'vinyl', leadGain: 0.6, chordGain: 1.08, bassGain: 0.62 },
+    Global: { wave: 'pluck', bassWave: 'round', chordWave: 'stab', percussion: 'global', texture: 'shaker', leadGain: 0.85, chordGain: 0.78, bassGain: 0.82 },
+    Urban: { wave: 'bell', bassWave: '808', chordWave: 'dark', percussion: 'trap', texture: 'hatroll', leadGain: 0.7, chordGain: 0.62, bassGain: 1.35 },
+    Playful: { wave: 'toy', bassWave: 'square', chordWave: 'pluck', percussion: 'comedy', texture: 'popcorn', leadGain: 1.08, chordGain: 0.7, bassGain: 0.68 },
+    Motivation: { wave: 'anthem', bassWave: 'saw', chordWave: 'wide', percussion: 'drive', texture: 'lift', leadGain: 0.95, chordGain: 1.05, bassGain: 1.05 },
+    Organic: { wave: 'string', bassWave: 'round', chordWave: 'pluck', percussion: 'organic', texture: 'wood', leadGain: 0.74, chordGain: 0.92, bassGain: 0.62 },
+    Tech: { wave: 'bit', bassWave: 'saw', chordWave: 'digital', percussion: 'tech', texture: 'glitch', leadGain: 0.9, chordGain: 0.78, bassGain: 0.9 }
+  };
+  const generatedByCategory = {
+    Trending: { root: 293.66, scale: [0, 2, 4, 7, 9, 12], bass: [0, 0, 7, 9, 0, 4, 7, 12], melody: [12, 14, 16, 19, 21, 19, 16, 14], chord: [0, 4, 7], kick: [0, 1, 2, 3], snare: [1, 3], hatEvery: 0.25, swing: 0.01, drive: 1.05 },
+    Creator: { root: 246.94, scale: [0, 2, 4, 7, 9, 12], bass: [0, 4, 7, 4, 9, 7, 4, 2], melody: [12, 14, 16, 14, 12, 9, 7, 9], chord: [0, 4, 7], kick: [0, 2], snare: [2], hatEvery: 1, swing: 0, drive: 0.45 },
+    Cinematic: { root: 164.81, scale: [0, 2, 3, 7, 8, 12], bass: [0, 0, 3, 3, 8, 8, 7, 7], melody: [12, 15, 19, 20, 19, 15, 12, 8], chord: [0, 3, 7], kick: [0, 2.5], snare: [3], hatEvery: 2, swing: 0, drive: 0.72 },
+    Chill: { root: 220, scale: [0, 2, 3, 7, 10, 12], bass: [0, 0, 3, 3, 10, 10, 7, 7], melody: [12, 10, 7, 5, 10, 12, 15, 10], chord: [0, 3, 7, 10], kick: [0, 2.25], snare: [1.5, 3.5], hatEvery: 1, swing: 0.08, drive: 0.4 },
+    Global: { root: 246.94, scale: [0, 2, 4, 7, 9, 11, 12], bass: [0, 7, 0, 9, 4, 7, 2, 7], melody: [12, 16, 14, 12, 19, 16, 14, 21], chord: [0, 4, 9], kick: [0, 1.75, 2.5], snare: [1, 3], hatEvery: 0.5, swing: 0.08, drive: 0.88 },
+    Urban: { root: 146.83, scale: [0, 3, 5, 7, 10, 12], bass: [0, 0, -12, 7, 0, 10, -5, 0], melody: [12, 12, 15, 19, 17, 15, 12, 10], chord: [0, 3, 7], kick: [0, 0.75, 2.25, 3.25], snare: [1, 3], hatEvery: 0.25, swing: 0.02, drive: 1.08 },
+    Playful: { root: 392, scale: [0, 2, 4, 5, 7, 9, 12], bass: [0, 7, 4, 7, 0, 9, 4, 7], melody: [12, 16, 14, 12, 19, 16, 21, 19], chord: [0, 4, 7], kick: [0, 1, 2, 3], snare: [1.5, 3.5], hatEvery: 0.5, swing: 0.07, drive: 0.82 },
+    Motivation: { root: 246.94, scale: [0, 2, 4, 7, 9, 12], bass: [0, 0, 7, 7, 9, 9, 4, 4], melody: [7, 9, 12, 14, 16, 19, 16, 14], chord: [0, 4, 7], kick: [0, 2], snare: [1, 3], hatEvery: 0.5, swing: 0.01, drive: 1 },
+    Organic: { root: 246.94, scale: [0, 2, 4, 7, 9, 12], bass: [0, 4, 7, 9, 7, 4, 2, 0], melody: [12, 16, 19, 16, 14, 12, 9, 7], chord: [0, 4, 7], kick: [0], snare: [2], hatEvery: 2, swing: 0.03, drive: 0.5 },
+    Tech: { root: 164.81, scale: [0, 1, 3, 7, 10, 12], bass: [0, 0, 0, 7, 3, 0, 10, 7], melody: [12, 13, 15, 19, 15, 13, 10, 12], chord: [0, 3, 10], kick: [0, 1, 2, 3], snare: [1.5, 3.5], hatEvery: 0.25, swing: 0, drive: 0.95 }
+  };
+  const base = presets[track.id] || generatedByCategory[track.category] || presets['viral-pop'];
+  const style = categoryStyles[track.category] || categoryStyles.Trending;
+  const idOffset = String(track.id || '').split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 7;
+  return {
+    ...style,
+    ...base,
+    melody: (base.melody || []).map((semi, index) => semi + (index % 3 === 0 ? idOffset % 3 : 0)),
+    color: track.color
+  };
+}
+
+function oscillator(shape, phase) {
+  const p = phase - Math.floor(phase);
+  if (shape === 'saw') return 2 * p - 1;
+  if (shape === 'square') return p < 0.5 ? 1 : -1;
+  if (shape === 'triangle') return 1 - 4 * Math.abs(Math.round(p - 0.25) - (p - 0.25));
+  if (shape === 'bit') return Math.round(Math.sin(2 * Math.PI * p) * 4) / 4;
+  if (shape === 'bell') return Math.sin(2 * Math.PI * p) * 0.68 + Math.sin(2 * Math.PI * p * 2.72) * 0.32;
+  if (shape === 'toy') return Math.sin(2 * Math.PI * p) * 0.55 + oscillator('square', p * 2) * 0.22;
+  if (shape === 'pluck') return Math.sin(2 * Math.PI * p) * 0.62 + oscillator('triangle', p * 1.5) * 0.3;
+  if (shape === 'rhodes') return Math.sin(2 * Math.PI * p) * 0.72 + Math.sin(2 * Math.PI * p * 2.01) * 0.18 + Math.sin(2 * Math.PI * p * 3.01) * 0.08;
+  if (shape === 'brass') return oscillator('saw', p) * 0.38 + Math.sin(2 * Math.PI * p) * 0.62;
+  if (shape === 'string') return oscillator('triangle', p) * 0.7 + Math.sin(2 * Math.PI * p * 2) * 0.12;
+  if (shape === 'anthem') return oscillator('saw', p) * 0.34 + Math.sin(2 * Math.PI * p) * 0.66;
+  if (shape === 'bright') return Math.sin(2 * Math.PI * p) * 0.58 + Math.sin(2 * Math.PI * p * 2) * 0.24 + Math.sin(2 * Math.PI * p * 3) * 0.1;
+  if (shape === 'wide') return Math.sin(2 * Math.PI * p) * 0.5 + Math.sin(2 * Math.PI * (p * 1.005 + 0.1)) * 0.28;
+  if (shape === 'pad' || shape === 'warm') return Math.sin(2 * Math.PI * p) * 0.74 + oscillator('triangle', p * 0.5) * 0.18;
+  if (shape === 'dark') return Math.sin(2 * Math.PI * p) * 0.55 + oscillator('saw', p) * 0.18;
+  if (shape === 'digital') return oscillator('bit', p) * 0.52 + oscillator('square', p * 0.5) * 0.18;
+  if (shape === 'round') return Math.sin(2 * Math.PI * p) * 0.85 + Math.sin(2 * Math.PI * p * 0.5) * 0.1;
+  if (shape === '808') return Math.sin(2 * Math.PI * p) * 0.92 + Math.sin(2 * Math.PI * p * 2) * 0.05;
+  return Math.sin(2 * Math.PI * p);
 }
 
 function writeWavFile(filePath, samples, sampleRate) {
@@ -552,6 +623,7 @@ function synthLibraryTrack(track, outputPath) {
   const duration = 32;
   const samples = new Float32Array(sampleRate * duration);
   const beatDuration = 60 / (track.bpm || 100);
+  const masterGain = track.category === 'Cinematic' ? 0.62 : track.category === 'Urban' ? 0.68 : 0.72;
   let noiseSeed = 123456 + String(track.id).split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
   const noise = () => {
     noiseSeed = (noiseSeed * 1664525 + 1013904223) >>> 0;
@@ -575,30 +647,39 @@ function synthLibraryTrack(track, outputPath) {
     const sixteenthFrac = beat * 4 - Math.floor(beat * 4);
 
     let sample = 0;
-    const bassEnv = Math.exp(-beatFrac * 3.4);
-    sample += Math.sin(2 * Math.PI * bassFreq * t) * 0.28 * bassEnv;
-    sample += Math.sin(2 * Math.PI * bassFreq * 2 * t) * 0.08 * bassEnv;
+    const bassDecay = preset.bassWave === '808' ? 1.35 : 3.4;
+    const bassEnv = Math.exp(-beatFrac * bassDecay);
+    const bassPhase = bassFreq * (t + Math.sin(2 * Math.PI * 2 * t) * 0.0008);
+    sample += oscillator(preset.bassWave || 'sine', bassPhase) * 0.3 * bassEnv * (preset.bassGain || 1);
+    if (preset.bassWave === '808') {
+      sample += Math.sin(2 * Math.PI * bassFreq * 0.5 * t) * 0.24 * bassEnv;
+    } else {
+      sample += oscillator('sine', bassFreq * 2 * t) * 0.06 * bassEnv;
+    }
 
     const chordEnv = 0.18 + 0.16 * Math.sin(2 * Math.PI * beat / 8);
     for (const semi of preset.chord) {
       const freq = noteFrequency(preset.root, semi + chordShift);
-      sample += Math.sin(2 * Math.PI * freq * t) * 0.055 * chordEnv;
-      sample += Math.sin(2 * Math.PI * freq * 2.01 * t) * 0.018 * chordEnv;
+      const slowSwell = preset.chordWave === 'pad' ? (0.55 + 0.45 * Math.sin(2 * Math.PI * t / 8)) : 1;
+      sample += oscillator(preset.chordWave || 'sine', freq * t) * 0.058 * chordEnv * slowSwell * (preset.chordGain || 1);
+      sample += oscillator(preset.chordWave || 'sine', freq * 2.01 * t + 0.08) * 0.014 * chordEnv * slowSwell;
     }
 
     if (sixteenthFrac < 0.72) {
-      const leadEnv = Math.exp(-sixteenthFrac * 4.2);
+      const plucky = ['pluck', 'toy', 'string', 'bit'].includes(preset.wave);
+      const leadEnv = Math.exp(-sixteenthFrac * (plucky ? 8.5 : 4.2));
       const wobble = Math.sin(2 * Math.PI * 5.5 * t) * 0.003;
-      sample += Math.sin(2 * Math.PI * melodyFreq * (t + wobble)) * 0.16 * leadEnv * preset.drive;
-      sample += Math.sin(2 * Math.PI * melodyFreq * 2 * t) * 0.035 * leadEnv;
+      sample += oscillator(preset.wave || 'sine', melodyFreq * (t + wobble)) * 0.16 * leadEnv * preset.drive * (preset.leadGain || 1);
+      sample += oscillator(preset.wave || 'sine', melodyFreq * 2 * t + 0.03) * 0.028 * leadEnv;
     }
 
     for (const kickBeat of preset.kick) {
       const dist = beatInBar - kickBeat;
       if (dist >= 0 && dist < 0.18) {
         const env = Math.exp(-dist * 24);
-        const sweep = 50 + 95 * env;
-        sample += Math.sin(2 * Math.PI * sweep * t) * 0.75 * env;
+        const sweepBase = preset.percussion === 'cinematic' ? 36 : preset.percussion === 'trap' ? 42 : 50;
+        const sweep = sweepBase + (preset.percussion === 'trap' ? 130 : 95) * env;
+        sample += Math.sin(2 * Math.PI * sweep * t) * (preset.percussion === 'cinematic' ? 0.95 : 0.75) * env;
       }
     }
 
@@ -606,8 +687,10 @@ function synthLibraryTrack(track, outputPath) {
       const dist = beatInBar - snareBeat;
       if (dist >= 0 && dist < 0.12) {
         const env = Math.exp(-dist * 28);
-        sample += noise() * 0.42 * env;
-        sample += Math.sin(2 * Math.PI * 190 * t) * 0.14 * env;
+        const noiseGain = preset.percussion === 'comedy' ? 0.25 : preset.percussion === 'organic' ? 0.18 : 0.42;
+        const tone = preset.percussion === 'global' ? 420 : preset.percussion === 'trap' ? 210 : 190;
+        sample += noise() * noiseGain * env;
+        sample += Math.sin(2 * Math.PI * tone * t) * 0.14 * env;
       }
     }
 
@@ -615,12 +698,31 @@ function synthLibraryTrack(track, outputPath) {
     const hatPhase = (beat / hatInterval) - Math.floor(beat / hatInterval);
     if (hatPhase < 0.12) {
       const env = Math.exp(-hatPhase * 38);
-      sample += noise() * 0.11 * env;
+      const hatGain = preset.texture === 'hatroll' ? 0.17 : preset.texture === 'shaker' ? 0.14 : preset.texture === 'vinyl' ? 0.04 : 0.11;
+      sample += noise() * hatGain * env;
+      if (preset.texture === 'shaker' && hatPhase < 0.08) sample += Math.sin(2 * Math.PI * 6500 * t) * 0.025 * env;
+      if (preset.texture === 'popcorn' && hatPhase < 0.06) sample += oscillator('toy', 1200 * t) * 0.08 * env;
+    }
+
+    if (preset.texture === 'vinyl') {
+      sample += noise() * 0.018 + Math.sin(2 * Math.PI * 0.35 * t) * 0.015;
+    } else if (preset.texture === 'rumble') {
+      sample += Math.sin(2 * Math.PI * 42 * t) * 0.045 * (0.7 + 0.3 * Math.sin(2 * Math.PI * t / 6));
+    } else if (preset.texture === 'glitch') {
+      const glitchGate = (Math.floor(beat * 8) + String(track.id).length) % 13 === 0;
+      if (glitchGate) sample += oscillator('bit', melodyFreq * 3 * t) * 0.09 * Math.exp(-sixteenthFrac * 12);
+    } else if (preset.texture === 'wood') {
+      const tapPhase = (beat * 2) - Math.floor(beat * 2);
+      if (tapPhase < 0.08) sample += oscillator('triangle', 780 * t) * 0.055 * Math.exp(-tapPhase * 30);
+    } else if (preset.texture === 'lift') {
+      sample += noise() * 0.025 * Math.min(1, t / 16) * Math.sin(2 * Math.PI * beat / 16);
+    } else if (preset.texture === 'spark') {
+      sample += oscillator('bell', noteFrequency(preset.root * 2, preset.melody[(sixteenth + 3) % preset.melody.length] || 12) * t) * 0.018 * Math.exp(-sixteenthFrac * 10);
     }
 
     const fadeIn = Math.min(1, t / 1.5);
     const fadeOut = Math.min(1, (duration - t) / 1.5);
-    samples[i] = clampSample(sample * 0.72 * fadeIn * fadeOut);
+    samples[i] = clampSample(Math.tanh(sample * 1.08) * masterGain * fadeIn * fadeOut);
   }
 
   writeWavFile(outputPath, samples, sampleRate);
@@ -677,17 +779,21 @@ async function resolveMusicPath(body = {}) {
 
 app.get('/api/music-library', (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase();
+  const category = String(req.query.category || '').trim().toLowerCase();
+  const categories = Array.from(new Set(MUSIC_LIBRARY.map(track => track.category).filter(Boolean)));
   const tracks = MUSIC_LIBRARY
-    .filter(track => !q || `${track.title} ${track.mood}`.toLowerCase().includes(q))
+    .filter(track => !category || String(track.category || '').toLowerCase() === category)
+    .filter(track => !q || `${track.title} ${track.mood} ${track.category}`.toLowerCase().includes(q))
     .map(track => ({
       id: track.id,
       title: track.title,
+      category: track.category,
       mood: track.mood,
       bpm: track.bpm,
       color: track.color,
       previewUrl: `${publicBaseUrl(req)}/api/music-library/${encodeURIComponent(track.id)}`
     }));
-  res.json({ tracks });
+  res.json({ categories, tracks });
 });
 
 app.get('/api/music-library/:id', async (req, res) => {
