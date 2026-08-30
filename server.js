@@ -910,6 +910,19 @@ app.post('/api/music-provider/download', async (req, res) => {
     if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1024) {
       await downloadToFile(downloadUrl, outputPath);
     }
+    const stat = fs.statSync(outputPath);
+    if (stat.size < 2048) {
+      try { fs.unlinkSync(outputPath); } catch (err) {}
+      throw new Error('The selected music track could not be prepared.');
+    }
+    const fd = fs.openSync(outputPath, 'r');
+    const headerBuffer = Buffer.alloc(64);
+    fs.readSync(fd, headerBuffer, 0, headerBuffer.length, 0);
+    fs.closeSync(fd);
+    if (/^\s*</.test(headerBuffer.toString('utf8'))) {
+      try { fs.unlinkSync(outputPath); } catch (err) {}
+      throw new Error('The selected music track could not be prepared.');
+    }
     res.json({
       musicFileId,
       title: `${track.title} - ${track.artist}`,
@@ -1641,16 +1654,16 @@ function buildAudioMixFilter(durationSec, musicSettings) {
   const fadeIn = Math.min(Number(musicSettings.fadeIn) || 0, duration / 2);
   const fadeOut = Math.min(Number(musicSettings.fadeOut) || 0, duration / 2);
   const fadeOutStart = Math.max(0, duration - fadeOut);
-  const musicVolume = Math.max(0, Math.min(1, Number(musicSettings.musicVolume) || 0.18)) * (musicSettings.autoDuck ? 0.75 : 1);
+  const musicVolume = Math.max(0, Math.min(1, Number(musicSettings.musicVolume) || 0.22)) * (musicSettings.autoDuck ? 0.85 : 1);
   const voiceVolume = Math.max(0, Math.min(2, Number(musicSettings.voiceVolume) || 1));
   const musicStart = Math.max(0, Number(musicSettings.musicStart) || 0);
   const parts = [
-    `[0:a]volume=${voiceVolume.toFixed(2)},asetpts=PTS-STARTPTS[a0]`,
-    `[1:a]atrim=start=${musicStart.toFixed(3)}:duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${musicVolume.toFixed(3)}` +
+    `[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${voiceVolume.toFixed(2)},asetpts=PTS-STARTPTS[a0]`,
+    `[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=start=${musicStart.toFixed(3)}:duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS,apad=pad_dur=${duration.toFixed(3)},atrim=duration=${duration.toFixed(3)},volume=${musicVolume.toFixed(3)}` +
       (fadeIn > 0 ? `,afade=t=in:st=0:d=${fadeIn.toFixed(2)}` : '') +
       (fadeOut > 0 ? `,afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeOut.toFixed(2)}` : '') +
       `[a1]`,
-    '[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]'
+    '[a0][a1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]'
   ];
   return parts.join(';\n');
 }
@@ -1759,6 +1772,10 @@ app.post('/api/cut-clip', (req, res) => {
       const resolvedMusic = await resolveMusicPath({ musicEnabled, musicFileId, musicTrackId, musicVolume, voiceVolume, musicStart, musicFadeIn, musicFadeOut, musicAutoDuck });
       musicPath = resolvedMusic.musicPath;
       musicSettings = resolvedMusic.settings;
+      if (musicPath) {
+        const musicStat = fs.statSync(musicPath);
+        console.log('Resolved background music:', path.basename(musicPath), `${musicStat.size} bytes`);
+      }
     } catch (musicErr) {
       return res.status(400).json({ error: musicErr.message || 'Background music could not be loaded' });
     }
