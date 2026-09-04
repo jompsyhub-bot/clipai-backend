@@ -2307,7 +2307,7 @@ Rules:
         authorization: 'Bearer ' + GROQ_KEY
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'qwen/qwen3.6-27b',
         max_tokens: 2400,
         temperature: 0.35,
         messages: [
@@ -2454,7 +2454,7 @@ Rules:
         authorization: 'Bearer ' + GROQ_KEY
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'qwen/qwen3.6-27b',
         max_tokens: 2200,
         temperature: 0.65,
         messages: [
@@ -2620,7 +2620,7 @@ Rules:
         authorization: 'Bearer ' + GROQ_KEY
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'qwen/qwen3.6-27b',
         max_tokens: 1800,
         temperature: 0.35,
         messages: [
