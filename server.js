@@ -1078,7 +1078,14 @@ function cleanDownloadedFile(filePath) {
   }
 }
 
-function downloadRemoteToFile(url, dest, redirects = 0) {
+function publicMediaHeaders(headers = {}) {
+  const allowed = new Set(['referer', 'origin', 'user-agent']);
+  return Object.fromEntries(Object.entries(headers || {}).filter(([name, value]) =>
+    allowed.has(String(name).toLowerCase()) && typeof value === 'string' && value.trim()
+  ));
+}
+
+function downloadRemoteToFile(url, dest, redirects = 0, mediaHeaders = {}) {
   return new Promise((resolve, reject) => {
     if (!url || redirects > 5) return reject(new Error('Download link could not be followed'));
     let parsed;
@@ -1086,13 +1093,17 @@ function downloadRemoteToFile(url, dest, redirects = 0) {
     const protocol = parsed.protocol === 'https:' ? https : http;
     const file = fs.createWriteStream(dest);
     const request = protocol.get(parsed, {
-      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36', accept: '*/*' },
+      headers: {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+        accept: '*/*',
+        ...publicMediaHeaders(mediaHeaders)
+      },
       timeout: 120000
     }, response => {
       if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
         file.close();
         cleanDownloadedFile(dest);
-        return resolve(downloadRemoteToFile(new URL(response.headers.location, parsed).toString(), dest, redirects + 1));
+        return resolve(downloadRemoteToFile(new URL(response.headers.location, parsed).toString(), dest, redirects + 1, mediaHeaders));
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         file.close(); cleanDownloadedFile(dest);
@@ -1153,6 +1164,31 @@ async function requestProviderDownloadUrl(name, endpoint, url, headers = {}) {
   return downloadUrl;
 }
 
+async function downloadViaEasyDown(url, outputPath) {
+  const token = (process.env.EASYDOWN_API_KEY || '').trim();
+  if (!token) throw new Error('EasyDown API key is not configured');
+  const endpoint = (process.env.EASYDOWN_API_URL || 'https://api.easydown.org/api/v1/parse').trim();
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  const raw = await response.text();
+  let payload = {};
+  try { payload = JSON.parse(raw); } catch (err) { payload = { raw }; }
+  if (!response.ok) throw new Error(payload.msg || payload.error || 'EasyDown import failed');
+
+  const media = payload?.data?.media || payload?.data || {};
+  const videos = Array.isArray(media.videos) ? media.videos : [];
+  const readyVideo = videos
+    .filter(item => item?.url && item.hasAudio !== false && /mp4|video/i.test(`${item.mimeType || ''} ${item.url || ''}`))
+    .sort((a, b) => (Number(b.height) || 0) - (Number(a.height) || 0))[0];
+  if (!readyVideo) throw new Error('EasyDown did not return a ready-to-play MP4 video');
+
+  await downloadRemoteToFile(readyVideo.url, outputPath, 0, readyVideo.headers || {});
+  return 'easydown';
+}
+
 async function runYtDlpDownload(url, outputPath, profile) {
   if (!(await waitForFile(YTDLP))) throw new Error('YouTube engine is still starting');
   const args = ytArgList([
@@ -1181,10 +1217,10 @@ async function importYouTubeWithStrategies({ url, outputPath, importMode }) {
     add('yt-dlp-short-fallback', () => runYtDlpDownload(url, outputPath, { name: 'yt-dlp-short-fallback', clients: 'android_embedded,ios,android,web', format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', timeout: 600000 }));
   } else {
     add('youtube-explode', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('youtube-explode', process.env.YOUTUBE_EXPLODE_SERVICE_URL, url), outputPath); return 'youtube-explode'; });
+    add('easydown', () => downloadViaEasyDown(url, outputPath));
     add('yt-dlp-tv', () => runYtDlpDownload(url, outputPath, { name: 'yt-dlp-tv', clients: 'tv,web_safari,android', format: 'bv*[ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4]/best' }));
     add('yt-dlp-mobile', () => runYtDlpDownload(url, outputPath, { name: 'yt-dlp-mobile', clients: 'ios,android,android_embedded', format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' }));
     add('apify', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('apify', process.env.APIFY_YOUTUBE_IMPORT_URL, url, process.env.APIFY_TOKEN ? { authorization: `Bearer ${process.env.APIFY_TOKEN}` } : {}), outputPath); return 'apify'; });
-    add('easydown', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('easydown', process.env.EASYDOWN_API_URL, url, process.env.EASYDOWN_API_KEY ? { authorization: `Bearer ${process.env.EASYDOWN_API_KEY}` } : {}), outputPath); return 'easydown'; });
     add('paid-provider', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('paid-provider', process.env.LONG_VIDEO_PROVIDER_URL, url, process.env.LONG_VIDEO_PROVIDER_KEY ? { authorization: `Bearer ${process.env.LONG_VIDEO_PROVIDER_KEY}` } : {}), outputPath); return 'paid-provider'; });
   }
 
