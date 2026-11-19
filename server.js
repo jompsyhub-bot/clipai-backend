@@ -72,14 +72,14 @@ function describeProxyProblem(stderr) {
   return '';
 }
 
-function ytArgList(extra = []) {
+function ytArgList(extra = [], options = {}) {
   const args = [
-    '--extractor-args', 'youtube:player_client=android_embedded,ios,android,web',
     '--no-warnings',
     '--format-sort', 'ext:mp4:m4a',
     '--retries', '3',
     '--fragment-retries', '3'
   ];
+  args.unshift('--extractor-args', `youtube:player_client=${options.clients || 'android_embedded,ios,android,web'}`);
   if (fs.existsSync(COOKIES_FILE)) args.push('--cookies', COOKIES_FILE);
   const proxyUrl = getProxyUrl();
   if (proxyUrl) args.push('--proxy', proxyUrl);
@@ -1068,6 +1068,145 @@ function waitForFile(filePath, timeout = 60000) {
   });
 }
 
+function isYouTubeUrl(url) {
+  return /(^|\/\/)(www\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)\//i.test(String(url || ''));
+}
+
+function cleanDownloadedFile(filePath) {
+  try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (err) {
+    console.warn('Could not remove partial download:', err.message);
+  }
+}
+
+function downloadRemoteToFile(url, dest, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    if (!url || redirects > 5) return reject(new Error('Download link could not be followed'));
+    let parsed;
+    try { parsed = new URL(url); } catch (err) { return reject(new Error('Invalid download link')); }
+    const protocol = parsed.protocol === 'https:' ? https : http;
+    const file = fs.createWriteStream(dest);
+    const request = protocol.get(parsed, {
+      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36', accept: '*/*' },
+      timeout: 120000
+    }, response => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+        file.close();
+        cleanDownloadedFile(dest);
+        return resolve(downloadRemoteToFile(new URL(response.headers.location, parsed).toString(), dest, redirects + 1));
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        file.close(); cleanDownloadedFile(dest);
+        return reject(new Error('Download server returned status ' + response.statusCode));
+      }
+      response.pipe(file);
+      file.on('finish', () => file.close(() => resolve(dest)));
+    });
+    request.on('timeout', () => request.destroy(new Error('Download timed out')));
+    request.on('error', err => { file.close(); cleanDownloadedFile(dest); reject(err); });
+  });
+}
+
+function extractYouTubeId(url) {
+  const match = String(url || '').match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([a-zA-Z0-9_-]{6,})/);
+  return match ? match[1] : '';
+}
+
+function pickDownloadUrl(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  for (const key of ['downloadUrl', 'file', 'url', 'link']) if (typeof payload[key] === 'string') return payload[key];
+  for (const listKey of ['formats', 'medias', 'media']) {
+    const items = payload[listKey];
+    if (!Array.isArray(items)) continue;
+    const mp4 = items.find(item => item?.url && /mp4|h264|avc|video/i.test(`${item.ext || ''} ${item.mimeType || ''} ${item.type || ''} ${item.quality || ''}`));
+    if (mp4?.url) return mp4.url;
+    const first = items.find(item => item?.url);
+    if (first?.url) return first.url;
+  }
+  return '';
+}
+
+async function resolveRapidApiDownloadUrl(url) {
+  const key = process.env.RAPIDAPI_KEY || process.env.YOUTUBE_RAPIDAPI_KEY || '';
+  const host = process.env.RAPIDAPI_YOUTUBE_HOST || 'youtube-video-fast-downloader-24-7.p.rapidapi.com';
+  if (!key) throw new Error('RapidAPI key is not configured');
+  const videoId = extractYouTubeId(url);
+  if (!videoId) throw new Error('Could not read the YouTube video ID');
+  const response = await fetch(`https://${host}/download_video/${encodeURIComponent(videoId)}?quality=247`, {
+    headers: { 'content-type': 'application/json', 'x-rapidapi-host': host, 'x-rapidapi-key': key }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || data.message || 'RapidAPI import failed');
+  const downloadUrl = pickDownloadUrl(data);
+  if (!downloadUrl) throw new Error('RapidAPI did not return a download link');
+  return downloadUrl;
+}
+
+async function requestProviderDownloadUrl(name, endpoint, url, headers = {}) {
+  if (!endpoint) throw new Error(name + ' is not configured');
+  const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ url }) });
+  const raw = await response.text();
+  let data = {};
+  try { data = JSON.parse(raw); } catch (err) { data = { raw }; }
+  if (!response.ok) throw new Error(data.error || data.message || name + ' request failed');
+  const downloadUrl = pickDownloadUrl(data);
+  if (!downloadUrl) throw new Error(name + ' did not return a downloadable video');
+  return downloadUrl;
+}
+
+async function runYtDlpDownload(url, outputPath, profile) {
+  if (!(await waitForFile(YTDLP))) throw new Error('YouTube engine is still starting');
+  const args = ytArgList([
+    '--ffmpeg-location', FFMPEG, '--no-playlist', '-f', profile.format,
+    '--merge-output-format', 'mp4', '-o', outputPath, url
+  ], { clients: profile.clients });
+  return new Promise((resolve, reject) => {
+    execFile(YTDLP, args, { maxBuffer: 1024 * 1024 * 200, timeout: profile.timeout || 900000 }, (err, stdout, stderr) => {
+      if (err || !fs.existsSync(outputPath)) {
+        cleanDownloadedFile(outputPath);
+        return reject(new Error(compactProcessError(stderr || err?.message, profile.name + ' failed')));
+      }
+      resolve(profile.name);
+    });
+  });
+}
+
+async function importYouTubeWithStrategies({ url, outputPath, importMode }) {
+  const longMode = importMode === 'long';
+  const strategies = [];
+  const add = (name, run) => strategies.push({ name, run });
+
+  if (!isYouTubeUrl(url)) add('direct-url', () => downloadRemoteToFile(url, outputPath));
+  else if (!longMode) {
+    add('rapidapi-short', async () => { await downloadRemoteToFile(await resolveRapidApiDownloadUrl(url), outputPath); return 'rapidapi-short'; });
+    add('yt-dlp-short-fallback', () => runYtDlpDownload(url, outputPath, { name: 'yt-dlp-short-fallback', clients: 'android_embedded,ios,android,web', format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', timeout: 600000 }));
+  } else {
+    add('youtube-explode', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('youtube-explode', process.env.YOUTUBE_EXPLODE_SERVICE_URL, url), outputPath); return 'youtube-explode'; });
+    add('yt-dlp-tv', () => runYtDlpDownload(url, outputPath, { name: 'yt-dlp-tv', clients: 'tv,web_safari,android', format: 'bv*[ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4]/best' }));
+    add('yt-dlp-mobile', () => runYtDlpDownload(url, outputPath, { name: 'yt-dlp-mobile', clients: 'ios,android,android_embedded', format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' }));
+    add('apify', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('apify', process.env.APIFY_YOUTUBE_IMPORT_URL, url, process.env.APIFY_TOKEN ? { authorization: `Bearer ${process.env.APIFY_TOKEN}` } : {}), outputPath); return 'apify'; });
+    add('easydown', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('easydown', process.env.EASYDOWN_API_URL, url, process.env.EASYDOWN_API_KEY ? { authorization: `Bearer ${process.env.EASYDOWN_API_KEY}` } : {}), outputPath); return 'easydown'; });
+    add('paid-provider', async () => { await downloadRemoteToFile(await requestProviderDownloadUrl('paid-provider', process.env.LONG_VIDEO_PROVIDER_URL, url, process.env.LONG_VIDEO_PROVIDER_KEY ? { authorization: `Bearer ${process.env.LONG_VIDEO_PROVIDER_KEY}` } : {}), outputPath); return 'paid-provider'; });
+  }
+
+  const errors = [];
+  for (const strategy of strategies) {
+    cleanDownloadedFile(outputPath);
+    try {
+      console.log('Trying YouTube import channel:', strategy.name);
+      const channel = await strategy.run();
+      if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1024) throw new Error('Downloaded file was empty');
+      console.log('✅ YouTube import channel succeeded:', channel || strategy.name);
+      return channel || strategy.name;
+    } catch (err) {
+      errors.push(`${strategy.name}: ${err.message || err}`);
+      console.warn('⚠️ YouTube import channel failed:', strategy.name, err.message || err);
+    }
+  }
+  const error = new Error('We could not import this link right now. Please try again or upload the video file directly.');
+  error.details = errors;
+  throw error;
+}
+
 let drawtextSupportPromise = null;
 function checkDrawtextSupport() {
   if (drawtextSupportPromise) return drawtextSupportPromise;
@@ -1125,56 +1264,21 @@ app.get('/api/test-yt', (req, res) => {
 
 // ─── DOWNLOAD FILE ────────────────────────────────────────────────────────────
 app.post('/api/youtube-upload', async (req, res) => {
-  const { url } = req.body;
+  const { url, importMode } = req.body;
   if (!url) return res.status(400).json({ error: 'No URL provided' });
-  console.log('📥 /api/youtube-upload:', url);
+  const selectedMode = importMode === 'long' ? 'long' : 'short';
+  console.log('📥 /api/youtube-upload:', url, 'mode:', selectedMode);
 
   const localFileId = `yt_${Date.now()}`;
   const outputPath = path.join(UPLOAD_DIR, localFileId + '.mp4');
 
-  // Check if it's already a direct download URL (from RapidAPI)
-  const isDirectUrl = !url.includes('youtube.com') && !url.includes('youtu.be');
-
-  if (isDirectUrl) {
-    // Direct MP4 URL — just download it with curl/https
-    console.log('Direct URL detected, downloading directly...');
-    try {
-      await new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(outputPath);
-        const protocol = url.startsWith('https') ? require('https') : require('http');
-        protocol.get(url, (response) => {
-          if (response.statusCode === 302 || response.statusCode === 301) {
-            file.close();
-            const redirectUrl = response.headers.location;
-            const redirectProtocol = redirectUrl.startsWith('https') ? require('https') : require('http');
-            redirectProtocol.get(redirectUrl, (res2) => {
-              res2.pipe(file);
-              file.on('finish', () => { file.close(); resolve(); });
-            }).on('error', reject);
-          } else {
-            response.pipe(file);
-            file.on('finish', () => { file.close(); resolve(); });
-          }
-        }).on('error', reject);
-      });
-    } catch (err) {
-      return res.status(500).json({ error: 'Direct download failed: ' + err.message });
-    }
-  } else {
-    // YouTube URL — use yt-dlp
-    const ready = await waitForFile(YTDLP);
-    if (!ready) return res.status(503).json({ error: 'yt-dlp not ready, please try again.' });
-    const cmd = `"${YTDLP}" ${ytArgs()} --ffmpeg-location "${FFMPEG}" -f "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
-    console.log('Running:', cmd);
-    await new Promise((resolve) => {
-      exec(cmd, { maxBuffer: 1024 * 1024 * 200, timeout: 600000 }, (err, stdout, stderr) => {
-        if (err) {
-          res.status(500).json({ error: 'YouTube download failed: ' + stderr.substring(0, 200) });
-          resolve(false);
-        } else resolve(true);
-      });
-    });
-    if (!fs.existsSync(outputPath)) return;
+  let importMethod = '';
+  try {
+    importMethod = await importYouTubeWithStrategies({ url, outputPath, importMode: selectedMode });
+  } catch (err) {
+    console.error('YouTube import failed:', err.details || err.message);
+    cleanDownloadedFile(outputPath);
+    return res.status(422).json({ error: 'We could not import this link right now. Please try again or upload the video file directly.' });
   }
 
   if (!fs.existsSync(outputPath)) {
@@ -1185,7 +1289,8 @@ app.post('/api/youtube-upload', async (req, res) => {
 
   const previewUrl = localPreviewUrl(req, localFileId);
   const ASSEMBLYAI_KEY = process.env.ASSEMBLYAI_API_KEY;
-  if (!ASSEMBLYAI_KEY) return res.json({ localFileId, uploadUrl: previewUrl, previewUrl });
+  const baseResponse = { localFileId, previewUrl, importMethod, importMode: selectedMode, originalUrl: req.body.originalUrl || url };
+  if (!ASSEMBLYAI_KEY) return res.json({ ...baseResponse, uploadUrl: previewUrl });
 
   try {
     const fileData = fs.readFileSync(outputPath);
@@ -1196,10 +1301,10 @@ app.post('/api/youtube-upload', async (req, res) => {
     });
     const uploadData = JSON.parse(uploadRes);
     console.log('✅ Uploaded to AssemblyAI:', uploadData.upload_url);
-    res.json({ localFileId, uploadUrl: uploadData.upload_url, previewUrl });
+    res.json({ ...baseResponse, uploadUrl: uploadData.upload_url });
   } catch (uploadErr) {
     console.error('AssemblyAI upload error:', uploadErr.message);
-    res.json({ localFileId, uploadUrl: previewUrl, previewUrl });
+    res.json({ ...baseResponse, uploadUrl: previewUrl });
   }
 });
 
@@ -2307,7 +2412,7 @@ Rules:
         authorization: 'Bearer ' + GROQ_KEY
       },
       body: JSON.stringify({
-        model: 'qwen/qwen3.6-27b',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 2400,
         temperature: 0.35,
         messages: [
@@ -2454,7 +2559,7 @@ Rules:
         authorization: 'Bearer ' + GROQ_KEY
       },
       body: JSON.stringify({
-        model: 'qwen/qwen3.6-27b',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 2200,
         temperature: 0.65,
         messages: [
@@ -2620,7 +2725,7 @@ Rules:
         authorization: 'Bearer ' + GROQ_KEY
       },
       body: JSON.stringify({
-        model: 'qwen/qwen3.6-27b',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 1800,
         temperature: 0.35,
         messages: [
